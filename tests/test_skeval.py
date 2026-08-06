@@ -383,6 +383,30 @@ def test_report_writes_scores_into_the_artifact(tmp_path: Path) -> None:
 # --- fixtures on disk -----------------------------------------------------
 
 
+def test_the_add_harness_skill_documents_a_config_that_loads(tmp_path: Path) -> None:
+    """A skill that teaches an invalid config is worse than no skill.
+
+    The example block is extracted and loaded, so a renamed or removed
+    field breaks this test rather than someone's afternoon.
+    """
+    skill = REPO / "skills" / "add-harness" / "SKILL.md"
+    blocks = re.findall(r"```toml\n(.*?)```", skill.read_text(), re.DOTALL)
+    assert blocks, "the skill must show a config"
+
+    written = tmp_path / "skeval.toml"
+    written.write_text(blocks[0])
+    loaded = load_config(written)
+
+    built = loaded.harness["my-harness"]
+    assert built.start[0] == "my-agent"
+    assert "{prompt}" in built.start
+    assert built.supports_resume
+    assert built.skills == ".my-agent/skills"
+    assert [t.label for t in loaded.targets()] == ["my-harness/some-model"]
+    # env is a reference, never a literal secret.
+    assert built.env == {"MY_AGENT_TOKEN": "${MY_AGENT_TOKEN}"}
+
+
 def test_canary_is_a_loadable_skill() -> None:
     """doctor's whole verdict rests on it."""
     canary = load_skill(REPO / "src/skeval/canary")
@@ -411,6 +435,68 @@ def test_harness_requires_start_and_skills() -> None:
     """Pydantic reports the missing field rather than failing later."""
     with pytest.raises(ValidationError):
         Harness(start=["x"])  # type: ignore[call-arg]
+
+
+def test_init_scaffolds_something_skeval_can_actually_load(tmp_path: Path) -> None:
+    """A scaffold that does not parse is worse than no scaffold."""
+    from skeval.scaffold import scaffold
+
+    written = scaffold(tmp_path / "my-skill", tmp_path / "skeval.toml")
+    assert len(written) == 4
+
+    loaded = load_config(tmp_path / "skeval.toml")
+    assert "claude-code" in loaded.harness
+    assert [t.label for t in loaded.targets()] == ["claude-code/claude-opus-5"]
+
+    built = load_skill(tmp_path / "my-skill")
+    assert built.name == "my-skill"
+    assert [c.name for c in built.cases] == ["fully-specified", "missing-author"]
+    # The withheld fact drives every dimension: it must be asked for, it must
+    # reach the artifact, and the artifact must come from the CLI.
+    withheld = built.cases[1]
+    assert withheld.answers[0].reply == "platform-team"
+    assert withheld.answers[0].match.search("Who is the author?")
+    assert withheld.tool == "notectl"
+    assert withheld.artifacts[0].path == "NOTE.md"
+
+
+def test_the_scaffolded_cli_writes_the_artifact(tmp_path: Path) -> None:
+    """The deterministic half has to work, or every case fails on setup."""
+    import subprocess
+
+    from skeval.scaffold import scaffold
+
+    scaffold(tmp_path / "my-skill", tmp_path / "skeval.toml")
+    done = subprocess.run(
+        [
+            str(tmp_path / "my-skill" / "bin" / "notectl"),
+            "write",
+            "--subject",
+            "Q4 rollout",
+            "--author",
+            "platform-team",
+            "--dir",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+    written = (tmp_path / "NOTE.md").read_text()
+    assert "Q4 rollout" in written
+    assert "platform-team" in written
+
+
+def test_init_refuses_to_overwrite(tmp_path: Path) -> None:
+    """Refuse rather than guess: a scaffold must never eat existing work."""
+    from skeval.scaffold import scaffold
+
+    scaffold(tmp_path / "my-skill", tmp_path / "skeval.toml")
+    (tmp_path / "my-skill" / "SKILL.md").write_text("mine")
+
+    with pytest.raises(FileExistsError, match=r"SKILL\.md"):
+        scaffold(tmp_path / "my-skill", tmp_path / "skeval.toml")
+    assert (tmp_path / "my-skill" / "SKILL.md").read_text() == "mine"
 
 
 # --- end to end, against a fake harness -----------------------------------

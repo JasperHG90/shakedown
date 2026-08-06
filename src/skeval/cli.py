@@ -13,7 +13,9 @@ from skeval.console import checks_table, console
 from skeval.models import ConfigError, load_config
 from skeval.report import REPORT_NAME
 
-app = typer.Typer(add_completion=False, help="Harness conformance testing for agent skills.")
+app = typer.Typer(
+    add_completion=False, help="Harness conformance testing for agent skills.", no_args_is_help=True
+)
 TESTS = Path(__file__).parent / "conformance.py"
 
 
@@ -60,6 +62,27 @@ def run(
     if keep:
         argv += ["--keep-workspaces"]
     raise typer.Exit(subprocess.run([*argv, *(pytest_args or [])], check=False).returncode)
+
+
+@app.command()
+def init(
+    skill: Annotated[Path, typer.Argument(help="where to scaffold the skill")] = Path("my-skill"),
+    config: Annotated[Path, typer.Option("--config", help="where to write skeval.toml")] = Path(
+        "skeval.toml"
+    ),
+) -> None:
+    """Scaffold a config and a skill that already passes."""
+    from skeval.scaffold import scaffold
+
+    try:
+        written = scaffold(skill, config)
+    except FileExistsError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+
+    for path in written:
+        console.print(f"  [green]+[/] {path}")
+    console.print(f"\nnext: [cyan]skeval doctor[/], then [cyan]skeval run {skill}[/]")
 
 
 @app.command()

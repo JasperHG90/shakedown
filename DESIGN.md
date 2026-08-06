@@ -64,18 +64,31 @@ Three checks, scored independently because they fail independently.
 **1. Tool use.** The deterministic CLI was invoked, rather than the agent
 producing an equivalent-looking result itself.
 
-The proof is a filesystem fact, not a transcript claim. The CLI writes a
-receipt beside its output containing a digest of the exact bytes it wrote.
-An agent that hand-writes the artifact produces a perfectly good artifact
-and no receipt.
+A case names the CLI, not the harness's tool. `tool = "planctl"` matches
+against both the tool call's name and its argument text, so it finds
+`planctl` inside a `Bash` command on one harness and inside a
+`run_shell_command` on another. Matching the tool name itself would have
+been a harness-specific check wearing a general name.
 
-This matters because tool names are harness-specific (`Bash` versus
-`run_shell_command`), so a transcript match is a harness-specific check
-wearing a general name. The receipt is identical everywhere.
+Matching the transcript alone is not enough, because **a denied call still
+appears in the transcript**. Harnesses emit the request before the
+permission decision, so a config missing a permission flag produces runs
+where the CLI was requested, refused, and never executed, and a naive
+matcher scores every one of them as a pass. The check therefore reads the
+harness's denial records too, and fails with "was requested but denied"
+rather than reporting a tool that never ran as used.
 
-Limit, stated plainly: the receipt catches a shortcut, not a forgery. The
-digest carries no secret, so a receipt can be fabricated by an agent that
-chooses to. That is out of the threat model.
+Limit, stated plainly: this catches a shortcut, not a forgery. An agent that
+writes the artifact itself while mentioning the CLI in passing would pass.
+
+An earlier draft of this design specified a receipt instead: the CLI writing
+a digest of the bytes it wrote, so the proof would be a filesystem fact
+immune to transcript wording. It was not built. The receipt would close the
+forgery gap above, and the argument against building it is that the same
+draft already conceded a receipt "catches a shortcut, not a forgery" since
+its digest carries no secret and can be fabricated by an agent that chooses
+to. Both designs stop at the same threat model, and the transcript one costs
+the skill author nothing.
 
 **2. Artifact created.** The expected file exists and is well formed. A
 file test, the least interesting of the three, and the only one that would
@@ -116,7 +129,7 @@ pytest                        the runner. no bespoke CLI, no second
   ▼
 plugin.py                     parametrize over harness x model x case x N
   ▼
-sandbox                       container (default) or tempdir
+sandbox                       tempdir (default) or container
   │                           empty env + declared vars only
   ▼
 runner.py                     render command template, exec, capture
@@ -132,22 +145,30 @@ The framework runs things and asserts on what came back.
 
 ### Code budget
 
-| module | lines |
-|---|---|
-| `config.py` | ~60 |
-| `sandbox.py` | ~90 |
-| `runner.py` | ~50 |
-| `events.py` | ~70 |
-| `checks.py` | ~90 |
-| `plugin.py` | ~80 |
-| **total** | **~440** |
+| module | budgeted | actual |
+|---|---|---|
+| `models.py` (config) | ~60 | 245 |
+| `sandbox.py` | ~90 | 124 |
+| `runner.py` | ~50 | 140 |
+| `events.py` | ~70 | 112 |
+| `checks.py` | ~90 | 167 |
+| `plugin.py` | ~80 | 205 |
+| **subtotal** | **~440** | **993** |
+| `report.py` | not budgeted | 152 |
+| `doctor.py` | not budgeted | 127 |
+| `cli.py` + `scaffold.py` | not budgeted | 282 |
+| `console.py` | not budgeted | 90 |
+| `conformance.py` | not budgeted | 25 |
+| **total** | | **1,671** |
 
-Plus the example skill and its CLI. The statistical gate, if adopted, adds
-roughly 350 (see [Open questions](#open-questions)).
+Plus the example skill and its CLI. Over budget by roughly 2.3x on the
+modules the budget named, and well under the predecessor that motivated it:
+2,807 lines of production code absorbing concerns that belong to the
+harness or to the container.
 
-This budget is a design constraint, not an estimate. A predecessor of this
-tool reached 2,807 lines of production code by absorbing concerns that
-belong to the harness or to the container.
+The overrun is concentrated in surfaces the budget never counted rather than
+in the measurement path. `doctor`, the report, and the scaffold are each a
+whole feature the original table omitted.
 
 ## The harness contract
 
@@ -159,7 +180,7 @@ and each is verified empirically before anyone trusts a measurement.
 | 1 | headless run with a prompt, exits on its own | yes | unusable |
 | 2 | loads a skill from a path you control | yes | unusable |
 | 3 | machine-readable output with tool calls and text | yes | unusable |
-| 4 | continue a session (`--resume` / `--session-id`) | no | check 3 reported `unsupported` |
+| 4 | continue a session (`--resume`, `--session-id`) | no | check 3 `unsupported` |
 | 5 | runs without a TTY | yes | unusable |
 
 Prerequisite 4 is optional on purpose. A harness must never *fail* a
@@ -196,42 +217,52 @@ thirty-second answer instead of a confusing eval run.
 
 ```toml
 [harness.claude-code]
-image  = "ghcr.io/you/claude-code:2.1.220"
-start  = "claude -p {prompt} --output-format stream-json --verbose --session-id {sid}"
-resume = "claude -p {reply}  --output-format stream-json --verbose --resume {sid}"
-skills = { mode = "flag", flag = "--plugin-dir {dir}" }
+start = [
+  "claude", "-p", "{prompt}",
+  "--output-format", "stream-json", "--verbose",
+  "--model", "{model}",
+  "--allowedTools", "Bash", "Write", "Read", "Skill",
+  "--permission-mode", "acceptEdits",
+  "--setting-sources", "project",
+  "--session-id", "{sid}",
+]
+resume = [
+  "claude", "-p", "{reply}",
+  # ... same flags ...
+  "--resume", "{sid}",
+]
+skills = ".claude/skills"
+activation_tool = "Skill"
+image   = "node:22-slim"
+install = "npm i -g @anthropic-ai/claude-code@2.1.220"
 
 [harness.claude-code.env]
-ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
+HOME = "${HOME}"
 
 [harness.claude-code.events]
-container     = "message.content"   # dotted path to a list; omit if flat
-discriminator = "type"
-tool_marker   = "tool_use"
-name_key      = "name"
-args_key      = "input"
-text_key      = "text"
-
-[harness.claude-code.tools]
-shell = "Bash"
-write = "Write"
-read  = "Read"
+container = "message.content"   # dotted path to a list; omit if flat
 ```
 
-Gemini differs only in values, including omitting `container`:
+Three things this shape buys, each learned the hard way:
 
-```toml
-[harness.gemini-cli]
-image  = "ghcr.io/you/gemini-cli:0.47.0"
-start  = "gemini -p {prompt} -o stream-json --approval-mode yolo --skip-trust --session-id {sid}"
-resume = "gemini -p {reply}  -o stream-json --approval-mode yolo --skip-trust --resume latest"
-skills = { mode = "copy", dest = ".gemini/skills/{name}" }
+**Commands are lists, not strings.** Each token is one argument, so a prompt
+containing a quote or a leading dash stays a prompt rather than becoming a
+flag. A string template would need a shell-quoting rule per harness.
 
-[harness.gemini-cli.tools]
-shell = "run_shell_command"
-write = "write_file"
-read  = "read_file"
-```
+**`skills` is a plain path, and the skill is copied into it.** An earlier
+draft had `skills = { mode = "flag", flag = "--plugin-dir {dir}" }`. The
+flag mode was dropped after `--plugin-dir` produced a run whose init event
+showed the skill absent from the model's list. Copying into the directory
+the harness scans unaided is the only mode that was observed to work.
+
+**`activation_tool`** identifies a skill-activation call, `Skill` here and
+`activate_skill` on Gemini. It is what separates "never fired" from "fired
+and failed", and without it a `NOT_TRIGGERED` run would be scored as an
+ordinary failure of the skill.
+
+A `[harness.*.tools]` block mapping `shell`/`write`/`read` to per-harness
+names was specified and then dropped: the tool names already appear in
+`start` where the harness needs them, and nothing read the map.
 
 ### Events: one optional descent, not a query language
 
@@ -278,17 +309,31 @@ harness's advantage is its scaffolding rather than the model behind it.
 
 ```toml
 [[case]]
-name    = "missing-owner"
-prompt  = "Write a project plan. Title: Billing migration. Milestone: 2026-Q4."
-artifact = "PLAN.md"
+name   = "missing-owner"
+prompt = "Write a project plan titled Billing migration."
+tool   = "planctl"
 
-[[case.answers]]
-match = "(?i)\\bowner\\b|who owns"
-reply = "platform-team"
+  [[case.artifacts]]
+  path     = "PLAN.md"
+  contains = ["Billing migration"]
+
+  [[case.answers]]
+  match = "(?i)\\bowner\\b|who owns"
+  reply = "platform-team"
 ```
 
 `match` is a trigger for replying, not the evidence. The evidence is
 `reply` appearing in the artifact.
+
+Every dimension is optional, and a case declares only what applies to it.
+Omitting `tool` reports the tool check `unsupported` rather than failing it,
+which matters because plenty of skills legitimately write their own
+artifact. The same holds for `artifacts` and `answers`. This is the same
+rule as a harness that cannot resume: a check that does not apply is
+reported, never counted against the skill.
+
+`artifact = "PLAN.md"` is shorthand for a single-entry `[[case.artifacts]]`
+with no content expectations.
 
 ## The CLI is a thin front for pytest
 
@@ -296,13 +341,21 @@ reply = "platform-team"
 the way. It is a convenience, never a wall.
 
 ```bash
-skeval init                          # scaffold config + example skill
+skeval init                          # scaffold config + starter skill
 skeval doctor --harness gemini-cli   # verify the five prerequisites
-skeval run                           # the whole matrix
-skeval run --harness gemini-cli --repeat 5
-skeval run --case missing-owner --sandbox tmp
-skeval run -- -x --pdb               # everything after -- goes to pytest
+skeval run ./my-skill                # the whole matrix
+skeval run ./my-skill --repeat 5 --parallel 5
+skeval run ./my-skill --case missing-owner --sandbox container
+skeval run ./my-skill -x --pdb       # unknown arguments reach pytest
 ```
+
+The skill under test is a path, never config. Everything skeval needs about
+it lives under that one directory: `SKILL.md`, `cases.toml`, and an optional
+`bin/`. Nothing about a skill is registered anywhere.
+
+`--parallel N` maps to `-n N`. Every run is independent, so repeats and
+targets spread across processes and each worker writes a shard that the
+controller merges back into one report.
 
 Three rules keep it honest:
 
@@ -314,16 +367,29 @@ Three rules keep it honest:
 - **Unknown arguments pass through** rather than erroring, so the CLI never
   becomes the reason a pytest feature is unreachable.
 
-That keeps it at roughly 60 lines: argument translation, config discovery,
-and the `doctor` and `init` subcommands, which are the only two that are not
-tests.
+That keeps the front thin: argument translation plus the `doctor` and
+`init` subcommands, which are the only two that are not tests. `init`
+scaffolds a skill shaped after the worked example rather than a template
+with holes in it, so the first `skeval run` is a real measurement.
 
 ## Sandbox
 
-Container by default, tempdir for fast local iteration, same interface.
+Tempdir by default, container for isolation, same interface.
 
-The container is not only isolation, it is *deletion*. Inside one, the
-harness has no host configuration to leak, which removes the need for
+The design called for the container as the default. The shipped default is
+`tmp`, because a container needs the harness CLI baked into an image and its
+credentials passed as environment variables, and a harness authenticated by
+browser login keeps its token in the host keychain where the container
+cannot see it. Requiring that to run anything at all would have made the
+first run the hardest one.
+
+The cost is stated rather than hidden: `tmp` runs on the host, so the
+harness can see whatever else is installed there, and every report records
+`isolated: false` so the numbers are read with that in mind. `doctor` step 6
+reports how many other skills were visible.
+
+The container *deletes* rather than hides. Inside one, the harness has no
+host configuration to leak at all, which removes the need for
 `--safe-mode`, config-root overrides, and an isolation assertion. It also
 pins the harness version as a property of the image rather than a flag
 someone has to remember.
@@ -384,15 +450,18 @@ was never exercised against a real stream.
 block, runs `doctor`, and iterates until the harness qualifies or reports
 exactly which prerequisite it fails.
 
-Following the convention that a discrete operator decision gets a
-structured prompt rather than a prose question:
+Following the convention that a discrete operator decision gets a decision
+prompt rather than a prose question:
 
 | step | shape |
 |---|---|
-| skill install mode: `flag` or `copy` | fork, ask |
-| events shape: flat, nested, or custom | fork, ask, with the harness's own output as preview |
+| events shape: flat or nested | fork, ask, with the harness's own output as preview |
 | command template | prose, it is written rather than chosen |
-| tool-name map | prose, derived from a `doctor` run then confirmed |
+| permission flags | prose, driven by what `doctor` reports as denied |
+
+Two rows from an earlier draft are gone with the config they described. The
+skill install mode is no longer a choice, since only copying was observed to
+work, and there is no tool-name map to derive.
 
 The framework's own onboarding being a skill makes it the first dogfood
 case. If `add-harness` cannot reliably elicit a harness config across two
@@ -411,27 +480,30 @@ Deliberately not the framework's concern:
 - **Cost normalization.** Reported if the harness reports it, absent
   otherwise, never inferred. A number in no unit is worse than no number.
 
-## Open questions
+## Settled questions
 
 **Q1. Does either harness ask, under an under-specified prompt, headlessly?**
-Unverified. Decides whether check 3 has signal on either harness or whether
-both simply invent values. Costs about $0.20 to settle and should be
-settled before check 3 is built.
+**Yes, both.** Settled by the probe recorded in
+[The evidence this design rests on](#the-evidence-this-design-rests-on):
+each asked in plain text and neither invented a value. Check 3 has signal on
+both harnesses and is built.
 
 **Q2. Does the statistical gate come along?**
-A predecessor carried an absolute floor plus a non-inferiority test against
-a committed baseline, quoting a Wilson lower bound. Roughly 350 lines.
+**No, and it does not need to live here.** The argument for it stands: at a
+true pass rate of 0.9 with N=5, P(5/5) is 0.59, so 41% of unregressed runs
+score 4/5 and fail against a 5/5 baseline, and a team switches that gate off
+within a week.
 
-The argument for: gating on a point-estimate difference at small N is a
-coin flip. At a true pass rate of 0.9 with N=5, P(5/5) is 0.59, so 41% of
-unregressed runs score 4/5 and fail against a 5/5 baseline. A team switches
-that gate off within a week.
-
-The argument against: plain pytest with `--repeat` is a tenth of the code
-and may be enough until real variance is known.
+But a gate needs counts, not runs. `skeval-report.json` already carries
+`scores[target][dimension]` with `passed` and `scored`, which is the entire
+input to a Wilson bound or a Fisher exact non-inferiority test. Anything
+that reads two of those files can gate, in CI or out of it, without this
+tool growing a statistics module or an opinion about what a regression is.
+Keeping it out preserves the property that skeval only measures.
 
 **Q3. Do harnesses need per-case timeouts, or is one global enough?**
-Unknown until real runs exist across more than two harnesses.
+**One global is enough.** `--timeout` applies per turn, which is the unit
+that actually hangs. No case has yet needed its own.
 
 ## Non-negotiables
 
