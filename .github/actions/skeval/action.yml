@@ -1,0 +1,205 @@
+name: skeval
+description: >-
+  Measure whether a skill still conforms on the harnesses you support.
+  Runs the conformance matrix, uploads the JSON report, and posts the
+  scores to the pull request.
+author: skeval
+
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  skill:
+    description: Path to the skill under test (the directory holding SKILL.md).
+    required: true
+  config:
+    description: Path to skeval.toml. Defaults to discovery from the working directory.
+    required: false
+    default: ""
+  harness:
+    description: Only run targets whose label contains this.
+    required: false
+    default: ""
+  case:
+    description: Only run cases whose name contains this.
+    required: false
+    default: ""
+  repeat:
+    description: Runs per (target, case). More repeats, tighter numbers, more money.
+    required: false
+    default: ""
+  parallel:
+    description: Runs at a time. Every run is independent, so this is wall-clock only.
+    required: false
+    default: "1"
+  sandbox:
+    description: tmp or container. tmp is not isolated and the report says so.
+    required: false
+    default: tmp
+  report:
+    description: Where to write the JSON report.
+    required: false
+    default: skeval-report.json
+  install:
+    description: >-
+      Shell command that installs the harness CLI, for example
+      "npm i -g @anthropic-ai/claude-code@2.1.220". Skipped when empty.
+    required: false
+    default: ""
+  python-version:
+    description: Python used to run skeval itself, not the harness.
+    required: false
+    default: "3.12"
+  comment:
+    description: Post the scores to the pull request. Ignored outside a PR.
+    required: false
+    default: "true"
+  artifact-name:
+    description: Name of the uploaded report artifact.
+    required: false
+    default: skeval-report
+  github-token:
+    description: Token used to post the comment. Needs pull-requests write.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  report:
+    description: Path to the JSON report.
+    value: ${{ inputs.report }}
+  passed:
+    description: Scenarios where nothing failed.
+    value: ${{ steps.measure.outputs.passed }}
+  failed:
+    description: Scenarios with at least one failing check.
+    value: ${{ steps.measure.outputs.failed }}
+  markdown:
+    description: The report rendered as markdown.
+    value: ${{ steps.measure.outputs.markdown }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    # GITHUB_ACTION_PATH is this directory, and the package lives three
+    # levels up at the repository root.
+    - name: Install skeval
+      shell: bash
+      run: |
+        root=$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)
+        test -f "$root/pyproject.toml" || {
+          echo "::error::no pyproject.toml at $root; the action moved relative to the package"
+          exit 1
+        }
+        python -m pip install --disable-pip-version-check "$root"
+
+    # Every input reaches the shell as an environment variable rather than
+    # being pasted into the script, so a value containing a quote is a value
+    # and not a second command.
+    - name: Install the harness
+      if: inputs.install != ''
+      shell: bash
+      env:
+        SKEVAL_INSTALL: ${{ inputs.install }}
+      run: bash -c "$SKEVAL_INSTALL"
+
+    # A failure here must not skip the report: a red run is exactly when the
+    # numbers are worth reading. The exit code is carried to the last step.
+    - name: Run the conformance matrix
+      id: measure
+      shell: bash
+      env:
+        SKEVAL_SKILL: ${{ inputs.skill }}
+        SKEVAL_CONFIG: ${{ inputs.config }}
+        SKEVAL_HARNESS: ${{ inputs.harness }}
+        SKEVAL_CASE: ${{ inputs.case }}
+        SKEVAL_REPEAT: ${{ inputs.repeat }}
+        SKEVAL_PARALLEL: ${{ inputs.parallel }}
+        SKEVAL_SANDBOX: ${{ inputs.sandbox }}
+        SKEVAL_REPORT: ${{ inputs.report }}
+      run: |
+        args=(run "$SKEVAL_SKILL" --report "$SKEVAL_REPORT"
+              --sandbox "$SKEVAL_SANDBOX" --parallel "$SKEVAL_PARALLEL")
+        if [ -n "$SKEVAL_CONFIG" ]; then args+=(--config "$SKEVAL_CONFIG"); fi
+        if [ -n "$SKEVAL_HARNESS" ]; then args+=(--harness "$SKEVAL_HARNESS"); fi
+        if [ -n "$SKEVAL_CASE" ]; then args+=(--case "$SKEVAL_CASE"); fi
+        if [ -n "$SKEVAL_REPEAT" ]; then args+=(--repeat "$SKEVAL_REPEAT"); fi
+
+        code=0
+        skeval "${args[@]}" || code=$?
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+
+        if [ ! -f "$SKEVAL_REPORT" ]; then
+          echo "::error::skeval wrote no report (exit $code), so nothing was measured."
+          echo "::error::Run 'skeval doctor' to find which prerequisite the harness fails."
+          exit "${code:-1}"
+        fi
+
+        skeval summary "$SKEVAL_REPORT" > "$RUNNER_TEMP/skeval.md"
+        cat "$RUNNER_TEMP/skeval.md" >> "$GITHUB_STEP_SUMMARY"
+
+        python - <<'PY' >> "$GITHUB_OUTPUT"
+        import json, os
+        counts = json.load(open(os.environ["SKEVAL_REPORT"]))["summary"]
+        print(f"passed={counts['ok']}")
+        print(f"failed={counts['failed']}")
+        PY
+
+        {
+          echo "markdown<<SKEVAL_EOF"
+          cat "$RUNNER_TEMP/skeval.md"
+          echo "SKEVAL_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Upload the report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.report }}
+        if-no-files-found: warn
+
+    # Edits its own previous comment rather than adding one per push, which
+    # is what makes this readable on a branch that gets iterated on.
+    - name: Comment on the pull request
+      if: always() && inputs.comment == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      env:
+        SKEVAL_MARKDOWN: ${{ steps.measure.outputs.markdown }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const body = process.env.SKEVAL_MARKDOWN;
+          if (!body) return;
+          const marker = '<!-- skeval-report -->';
+          const target = {
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          };
+
+          const seen = await github.paginate(
+            github.rest.issues.listComments, { ...target, per_page: 100 });
+          const mine = seen.find((c) => c.body && c.body.includes(marker));
+
+          if (mine) {
+            await github.rest.issues.updateComment({
+              owner: target.owner, repo: target.repo, comment_id: mine.id, body,
+            });
+          } else {
+            await github.rest.issues.createComment({ ...target, body });
+          }
+
+    - name: Fail if the matrix failed
+      if: always() && steps.measure.outputs.exit-code != '0'
+      shell: bash
+      env:
+        SKEVAL_EXIT: ${{ steps.measure.outputs.exit-code }}
+      run: |
+        echo "::error::skeval exited $SKEVAL_EXIT"
+        exit "$SKEVAL_EXIT"

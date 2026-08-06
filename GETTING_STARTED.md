@@ -250,6 +250,92 @@ are cleaned up unless you pass `--keep-workspaces`.
 resume a session is not marked down for it, and a run where the skill never
 activated measured the base model rather than your skill.
 
+## 7. Run it on every pull request
+
+A composite action runs the matrix, uploads the report, and posts the
+scores to the PR.
+
+```yaml
+name: skeval
+
+on:
+  pull_request:
+    paths: ["my-skill/**", "skeval.toml"]
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write      # required to post the comment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: your-org/skeval/.github/actions/skeval@v1
+        with:
+          skill: ./my-skill
+          repeat: "5"
+          parallel: "5"
+          install: npm i -g @anthropic-ai/claude-code@2.1.220
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+**The credential is the one thing that catches people out.** The sandbox
+gets the declared variables and nothing else, so putting a secret in the
+workflow is only half of it. The harness block has to ask for it:
+
+```toml
+[harness.claude-code.env]
+ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
+```
+
+Without that line the harness starts unauthenticated, every run reports
+`not_triggered`, and the rate is empty rather than zero. That is the
+intended behavior: a run that measured nothing is not a pass.
+
+### What you get
+
+- **A comment on the PR**, edited in place on each push rather than added
+  to, with a table of pass rates per target and a folded list naming every
+  failing case and reason.
+- **The JSON report as an artifact**, so a failure is debuggable from the
+  `argv`, tool calls, and agent text of every turn.
+- **The same table in the job summary**, so it is visible without opening
+  a comment.
+
+The job fails when any scenario fails, but the report is uploaded and the
+comment posted first. A red run is exactly when the numbers are worth
+reading.
+
+### Inputs
+
+| input | default | notes |
+|---|---|---|
+| `skill` | required | path to the skill directory |
+| `config` | discovered | path to `skeval.toml` |
+| `harness` / `case` | all | substring filters |
+| `repeat` | from config | runs per target and case |
+| `parallel` | `1` | runs at a time |
+| `sandbox` | `tmp` | `container` for isolation |
+| `report` | `skeval-report.json` | where the JSON lands |
+| `install` | none | shell command installing the harness CLI |
+| `comment` | `true` | set `false` to skip the PR comment |
+
+Outputs are `report`, `passed`, `failed`, and `markdown`.
+
+### Cost
+
+Every scenario is a real model call, so the bill is targets times cases
+times `repeat`. Two levers keep it sane: `paths:` so the workflow only
+fires when the skill or the config changes, and a smaller `repeat` on PRs
+than on a nightly schedule. `parallel` costs the same and finishes sooner.
+
+To render the comment yourself, or to feed the numbers to something else:
+
+```bash
+skeval summary skeval-report.json
+```
+
 ---
 
 # Adding your own harness

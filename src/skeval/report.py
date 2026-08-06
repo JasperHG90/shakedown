@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field
 from skeval.checks import Result, Status
 
 REPORT_NAME = "skeval-report.json"
+#: Identifies skeval's own PR comment, so a rerun edits it instead of
+#: adding another.
+MARKER = "<!-- skeval-report -->"
 
 
 class TurnRecord(BaseModel):
@@ -127,6 +130,58 @@ class Report(BaseModel):
                 else:
                     score.not_triggered += 1
         return {t: dict(d) for t, d in out.items()}
+
+    def markdown(self) -> str:
+        """The report as a PR comment.
+
+        Dimensions are columns and targets are rows, because the question a
+        reviewer has is "did anything get worse on any harness", and that
+        reads across a row.
+        """
+        counts = self.summary()
+        head = MARKER + f"\n### skeval: `{self.skill}`\n"
+
+        if not self.runs:
+            return head + "\nNo scenarios ran.\n"
+
+        verdict = "PASS" if not counts["failed"] else f"FAIL: {counts['failed']}"
+        head += (
+            f"\n**{counts['ok']}/{counts['runs']} scenarios passed** "
+            f"({verdict}) in {counts['duration_s']:.0f}s.\n\n"
+        )
+
+        scores = self.scores()
+        dims = sorted({d for by_target in scores.values() for d in by_target})
+        rows = ["| target | " + " | ".join(dims) + " |", "|---" * (len(dims) + 1) + "|"]
+        for target in sorted(scores):
+            cells = []
+            for dim in dims:
+                score = scores[target].get(dim)
+                if score is None or score.rate is None:
+                    cells.append("n/a")
+                else:
+                    cells.append(f"{score.rate:.0%} ({score.scored})")
+            rows.append(f"| {target} | " + " | ".join(cells) + " |")
+        body = head + "\n".join(rows) + "\n"
+
+        if failures := self.failures():
+            listed = "\n".join(
+                f"- **{f['case']}** run {f['run']} on `{f['target']}`\n"
+                + "\n".join(
+                    f"  - `{name}`: {reason}"
+                    for name, reason in zip(f["failed"], f["reasons"], strict=True)
+                )
+                for f in failures
+            )
+            body += (
+                f"\n<details><summary>{len(failures)} failing scenario"
+                f"{'' if len(failures) == 1 else 's'}</summary>\n\n{listed}\n\n</details>\n"
+            )
+
+        note = "not isolated, so the numbers include whatever else the harness could see"
+        body += f"\n<sub>sandbox: `{self.sandbox}`"
+        body += f" ({note})</sub>\n" if not self.isolated else "</sub>\n"
+        return body
 
     @classmethod
     def merge(cls, shards: list[Path]) -> Report:

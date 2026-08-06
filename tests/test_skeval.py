@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from skeval.checks import Status, artifact_created, inputs_resolved, run_all, tool_used
+from skeval.checks import Result, Status, artifact_created, inputs_resolved, run_all, tool_used
 from skeval.events import StreamError, ToolCall, Turn, parse, read
 from skeval.models import (
     Answer,
@@ -22,12 +22,15 @@ from skeval.models import (
     load_config,
     load_skill,
 )
-from skeval.report import Report, RunRecord
+from skeval.report import MARKER, Report, RunRecord
 from skeval.runner import Conversation, _match
 
 REPO = Path(__file__).resolve().parents[1]
 NESTED = Events(container="message.content")
 FLAT = Events(name_key="tool_name", args_key="parameters")
+GEMINI = Events(
+    name_key="tool_name", args_key="parameters", text_marker="message", text_key="content"
+)
 
 
 def harness(**kw: Any) -> Harness:
@@ -117,6 +120,30 @@ def test_denials_are_parsed() -> None:
     assert turn.denied == ["Bash"]
 
 
+def test_a_flat_harness_echoing_the_prompt_is_not_the_agent_speaking() -> None:
+    """Otherwise a prompt mentioning "owner" answers a question never asked."""
+    turn = parse(
+        [
+            {"type": "message", "role": "user", "content": "Write a plan. Owner: platform-team."},
+            {"type": "message", "role": "assistant", "content": "What is the title?"},
+        ],
+        GEMINI,
+    )
+    assert turn.texts == ["What is the title?"]
+
+
+def test_a_reply_streamed_in_fragments_stays_one_sentence() -> None:
+    """A newline join would split it, and `.` in a pattern does not cross one."""
+    turn = parse(
+        [
+            {"type": "message", "role": "assistant", "content": "What should"},
+            {"type": "message", "role": "assistant", "content": " the file be named?"},
+        ],
+        GEMINI,
+    )
+    assert re.search(r"(?i)what.*named", turn.said())
+
+
 def test_truncated_stream_raises(tmp_path: Path) -> None:
     """A partial result is worse than none, because it gets scored."""
     bad = tmp_path / "s.jsonl"
@@ -132,7 +159,10 @@ def test_shipped_config_and_skill_load() -> None:
     """Both files in the repo are valid."""
     config = load_config(REPO / "skeval.toml")
     skill = load_skill(REPO / "examples/write-plan")
-    assert [t.label for t in config.targets()] == ["claude-code/claude-opus-5"]
+    assert [t.label for t in config.targets()] == [
+        "claude-code/claude-opus-5",
+        "gemini-cli/gemini-3.6-flash",
+    ]
     assert skill.name == "write-plan"
     assert skill.bin_dir is not None
 
@@ -378,6 +408,134 @@ def test_report_writes_scores_into_the_artifact(tmp_path: Path) -> None:
     assert payload["scores"]["t"]["tool_used"]["rate"] == 0.5
     assert len(payload["runs"]) == 2
     assert payload["isolated"] is False
+
+
+def test_markdown_summarizes_a_green_run() -> None:
+    """The PR comment leads with the verdict, then the per-target table."""
+    report = Report(skill="write-plan", runs=[record(Status.PASS), record(Status.PASS)])
+    written = report.markdown()
+
+    assert written.startswith(MARKER), "the marker lets a rerun edit its own comment"
+    assert "### skeval: `write-plan`" in written
+    assert "**2/2 scenarios passed** (PASS)" in written
+    assert "| target | tool_used |" in written
+    assert "| t | 100% (2) |" in written
+    assert "<details>" not in written, "nothing failed, so there is nothing to fold away"
+    assert "not isolated" in written
+
+
+def test_markdown_names_every_failure() -> None:
+    """A red comment has to say which check, on which case, and why."""
+    bad = RunRecord(
+        target="claude-code/opus",
+        model="opus",
+        case="missing-owner",
+        run=2,
+        results=[
+            Result(name="tool_used", status=Status.PASS, reason="invoked planctl"),
+            Result(
+                name="artifact_created", status=Status.FAIL, reason="PLAN.md lacks platform-team"
+            ),
+        ],
+    )
+    written = Report(skill="write-plan", runs=[record(Status.PASS), bad]).markdown()
+
+    assert "(FAIL: 1)" in written
+    assert "<details><summary>1 failing scenario</summary>" in written
+    assert "- **missing-owner** run 2 on `claude-code/opus`" in written
+    assert "  - `artifact_created`: PLAN.md lacks platform-team" in written
+    assert "`tool_used`: invoked planctl" not in written, "passing checks are not failures"
+
+
+def test_markdown_refuses_to_imply_a_pass_when_nothing_ran() -> None:
+    """Zero rows is a distinct outcome, never a green comment."""
+    written = Report(skill="write-plan").markdown()
+    assert "No scenarios ran." in written
+    assert "passed" not in written
+
+
+def test_markdown_reports_an_unscored_dimension_as_not_applicable() -> None:
+    """A rate needs a denominator, and unsupported gives none."""
+    written = Report(skill="s", runs=[record(Status.UNSUPPORTED)]).markdown()
+    assert "| t | n/a |" in written
+
+
+# --- the github action ----------------------------------------------------
+
+
+ACTION = REPO / ".github" / "actions" / "skeval" / "action.yml"
+
+
+def action() -> dict[str, Any]:
+    """The composite action, parsed."""
+    import yaml
+
+    return dict(yaml.safe_load(ACTION.read_text()))
+
+
+def test_the_action_only_calls_commands_and_flags_that_exist() -> None:
+    """The action is CI's entry point, and CI is where a typo is expensive.
+
+    Renaming a command or a flag has to fail here rather than in someone's
+    pipeline.
+    """
+    from typer.testing import CliRunner
+
+    from skeval.cli import app
+
+    step = next(s for s in action()["runs"]["steps"] if s.get("id") == "measure")["run"]
+
+    runner = CliRunner()
+    for command in ("run", "summary"):
+        assert f"skeval {command}" in step or f"args=({command} " in step
+        assert runner.invoke(app, [command, "--help"]).exit_code == 0
+
+    used = set(re.findall(r"--[a-z-]+", step))
+    helped = runner.invoke(app, ["run", "--help"]).output
+    for flag in used:
+        assert flag in helped, f"{flag} is not a flag of `skeval run`"
+
+
+def test_the_action_installs_from_the_package_root() -> None:
+    """The action sits in a subdirectory, so it walks up to find the package.
+
+    Moving either the action or the package silently breaks that walk, and
+    the failure would only appear in someone's CI.
+    """
+    step = next(s for s in action()["runs"]["steps"] if s.get("name") == "Install skeval")["run"]
+    walk = re.search(r"GITHUB_ACTION_PATH/((?:\.\./)*\.\.)", step)
+    assert walk, "the install step must walk up to the package root"
+
+    resolved = (ACTION.parent / walk.group(1)).resolve()
+    assert resolved == REPO.resolve()
+    assert (resolved / "pyproject.toml").is_file()
+
+
+def test_the_documented_uses_path_points_at_the_action() -> None:
+    """The docs are where a user copies from, so a stale path breaks everyone."""
+    docs = (REPO / "GETTING_STARTED.md").read_text()
+    quoted = re.search(r"uses: \S+/(\.github\S*)@", docs)
+    assert quoted, "the CI section must show a `uses:` line"
+    assert (REPO / quoted.group(1) / "action.yml") == ACTION
+
+
+def test_the_actions_comment_marker_matches_the_one_it_looks_for() -> None:
+    """A drifted marker posts a fresh comment per push instead of editing."""
+    script = next(s for s in action()["runs"]["steps"] if "github-script" in s.get("uses", ""))[
+        "with"
+    ]["script"]
+    assert f"'{MARKER}'" in script
+    assert Report(skill="s").markdown().startswith(MARKER)
+
+
+def test_the_action_reports_even_when_the_matrix_fails() -> None:
+    """A red run is exactly when the numbers are worth reading."""
+    steps = {s.get("name", ""): s for s in action()["runs"]["steps"]}
+    assert "always()" in steps["Upload the report"]["if"]
+    assert "always()" in steps["Comment on the pull request"]["if"]
+    # The failure is re-raised at the end rather than aborting the step.
+    assert "always()" in steps["Fail if the matrix failed"]["if"]
+    assert "exit-code" in steps["Fail if the matrix failed"]["if"]
 
 
 # --- fixtures on disk -----------------------------------------------------

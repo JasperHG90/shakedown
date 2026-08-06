@@ -112,6 +112,23 @@ def _diagnose(name: str, harness: Harness, *, model: str, sandbox: str) -> Diagn
 
 
 @app.command()
+def summary(
+    report: Annotated[Path, typer.Argument(help="a report written by `skeval run`")] = Path(
+        REPORT_NAME
+    ),
+) -> None:
+    """Render a report as markdown, for a PR comment or a job summary."""
+    from skeval.report import Report
+
+    if not report.is_file():
+        console.print(f"[red]no report at {report}[/]")
+        raise typer.Exit(2)
+    # Printed rather than rich-rendered: the destination is a Markdown box
+    # on GitHub, so styling it here would only corrupt it.
+    print(Report.model_validate_json(report.read_text()).markdown(), end="")
+
+
+@app.command()
 def doctor(
     config: Annotated[Path | None, typer.Option("--config")] = None,
     harness: Annotated[str | None, typer.Option(help="only this harness")] = None,
