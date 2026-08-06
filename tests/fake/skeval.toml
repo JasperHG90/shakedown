@@ -1,6 +1,6 @@
 [harness.fake]
-start  = ["/Users/jasperginn/Documents/code_projects/agents/skills-cicd/tests/fake/agent", "-p", "{prompt}", "--session-id", "{sid}"]
-resume = ["/Users/jasperginn/Documents/code_projects/agents/skills-cicd/tests/fake/agent", "-p", "{reply}", "--resume", "{sid}"]
+start  = ["/Users/jasperginn/Documents/code_projects/agents/skills-cicd/tests/fake/skill/bin/agent", "-p", "{prompt}", "--session-id", "{sid}"]
+resume = ["/Users/jasperginn/Documents/code_projects/agents/skills-cicd/tests/fake/skill/bin/agent", "-p", "{reply}", "--resume", "{sid}"]
 skills = ".fake/skills"
 activation_tool = "Skill"
 

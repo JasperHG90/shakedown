@@ -13,9 +13,10 @@ Design and rationale: [`DESIGN.md`](DESIGN.md).
 
 ## Status
 
-MVP. Claude Code only. Tempdir sandbox; the container backend described in
-the design is not built yet, so runs are **not fully isolated** and
-`doctor` reports what else was visible.
+Claude Code only so far. Two sandboxes: `tmp` (default, fast, **not
+isolated**) and `container` (isolated, verified against a fake harness).
+The report records which was used, so a number is never read as isolated
+when it was not.
 
 New here? [`GETTING_STARTED.md`](GETTING_STARTED.md) walks through
 evaluating your own skill and adding your own harness.

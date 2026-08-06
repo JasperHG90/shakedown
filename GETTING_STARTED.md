@@ -148,6 +148,23 @@ uv run skeval run ./my-skill --sandbox container
 Every run is independent, so `--parallel` spreads them across processes.
 The report is merged back into one artifact.
 
+### Sandboxes
+
+`tmp` (default) runs on the host. Fast, and **not isolated**: the harness
+can see your installed skills and MCP servers. The report records
+`isolated: false` so the numbers are read with that in mind.
+
+`container` runs inside the harness's `image`, which has no developer
+configuration to pick up, and pins the harness version as a property of
+the image.
+
+The container needs two things your host run gets for free:
+
+- **The CLI in the image.** Set `image` and `install`.
+- **Credentials as env.** OAuth tokens on your host are not visible inside
+  the container, so a harness that authenticates by browser login needs an
+  API key declared in `[harness.*.env]` instead.
+
 ## 6. Read the report
 
 `skeval-report.json` carries every run and the scores derived from them:

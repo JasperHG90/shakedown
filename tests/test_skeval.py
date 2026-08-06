@@ -528,3 +528,66 @@ def test_a_toolless_case_still_scores_the_other_dimensions(tmp_path: Path) -> No
     assert results["skill_fired"] is Status.PASS
     assert results["artifact_created"] is Status.PASS
     assert results["tool_used"] is Status.UNSUPPORTED
+
+
+# --- the container backend ------------------------------------------------
+
+
+def _docker_available() -> bool:
+    import shutil
+    import subprocess
+
+    if not shutil.which("docker"):
+        return False
+    return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+
+
+needs_docker = pytest.mark.skipif(not _docker_available(), reason="docker is not available")
+
+
+@needs_docker
+def test_container_backend_runs_and_isolates(tmp_path: Path) -> None:
+    """The container backend executes a real conversation and reports isolated.
+
+    Uses the fake harness, so this costs nothing and needs no credentials.
+    A real harness additionally needs its CLI in the image and credentials
+    passed as env: OAuth tokens on the host are not visible inside.
+    """
+    import os
+    import subprocess
+
+    report = tmp_path / "report.json"
+    done = subprocess.run(
+        [
+            "python",
+            "-m",
+            "pytest",
+            str(REPO / "src/skeval/conformance.py"),
+            "-m",
+            "live",
+            "--skeval-config",
+            str(FAKE / "container.toml"),
+            "--skill",
+            str(FAKE / "skill"),
+            "--sandbox",
+            "container",
+            "--report",
+            str(report),
+            "-q",
+        ],
+        cwd=REPO,
+        env={**os.environ, "FAKE_COUNTER": "/work/count.txt"},
+        capture_output=True,
+        text=True,
+    )
+    assert report.is_file(), done.stdout + done.stderr
+
+    payload = json.loads(report.read_text())
+    assert payload["sandbox"] == "container"
+    assert payload["isolated"] is True
+    assert len(payload["runs"]) == 3
+
+    # Multi-turn resume must work inside the container, not only on the host.
+    turns = {r["case"]: r["turns"] for r in payload["runs"]}
+    assert turns["missing-both"] == 3
+    assert {r["name"]: r["status"] for r in payload["runs"][0]["results"]}["skill_fired"] == "pass"
