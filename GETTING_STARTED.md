@@ -270,15 +270,26 @@ jobs:
       pull-requests: write      # required to post the comment
     steps:
       - uses: actions/checkout@v4
+
+      # Install the harness yourself. It is your dependency, and installing
+      # it is a normal step: npm here, brew or curl or a pinned runtime
+      # elsewhere. Pin the version, because that is what you are measuring.
+      - run: npm i -g @anthropic-ai/claude-code@2.1.220
+
       - uses: your-org/skeval/.github/actions/skeval@v1
         with:
           skill: ./my-skill
           repeat: "5"
           parallel: "5"
-          install: npm i -g @anthropic-ai/claude-code@2.1.220
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
+
+The action does not install harnesses. It would have to cover npm, brew,
+curl, a pinned Node, and whatever authentication each one wants, and a
+single shell-command input covers none of that better than a step does.
+`--sandbox container` is the other answer: it pins the harness version as a
+property of the image.
 
 **The credential is the one thing that catches people out.** The sandbox
 gets the declared variables and nothing else, so putting a secret in the
@@ -318,7 +329,6 @@ reading.
 | `parallel` | `1` | runs at a time |
 | `sandbox` | `tmp` | `container` for isolation |
 | `report` | `skeval-report.json` | where the JSON lands |
-| `install` | none | shell command installing the harness CLI |
 | `comment` | `true` | set `false` to skip the PR comment |
 
 Outputs are `report`, `passed`, `failed`, and `markdown`.

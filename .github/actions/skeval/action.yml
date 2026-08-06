@@ -41,12 +41,6 @@ inputs:
     description: Where to write the JSON report.
     required: false
     default: skeval-report.json
-  install:
-    description: >-
-      Shell command that installs the harness CLI, for example
-      "npm i -g @anthropic-ai/claude-code@2.1.220". Skipped when empty.
-    required: false
-    default: ""
   python-version:
     description: Python used to run skeval itself, not the harness.
     required: false
@@ -98,16 +92,9 @@ runs:
         }
         python -m pip install --disable-pip-version-check "$root"
 
-    # Every input reaches the shell as an environment variable rather than
-    # being pasted into the script, so a value containing a quote is a value
-    # and not a second command.
-    - name: Install the harness
-      if: inputs.install != ''
-      shell: bash
-      env:
-        SKEVAL_INSTALL: ${{ inputs.install }}
-      run: bash -c "$SKEVAL_INSTALL"
-
+    # Inputs reach the shell as environment variables rather than being
+    # pasted into the script, so a value containing a quote stays a value.
+    #
     # A failure here must not skip the report: a red run is exactly when the
     # numbers are worth reading. The exit code is carried to the last step.
     - name: Run the conformance matrix
