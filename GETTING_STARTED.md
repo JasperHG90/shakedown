@@ -24,16 +24,20 @@ no registration. Just the directory.
 
 ## 3. Write `cases.toml`
 
-A case is a prompt, the artifact it should produce, and the tool it should
-go through.
+A case is a prompt and the artifact it should produce. `tool` is optional:
+name it when the skill must go through a specific CLI, omit it when the
+skill writes the artifact itself.
 
 ```toml
 [[case]]
 name     = "fully-specified"
 prompt   = "Write a project plan. Title: Billing migration. Owner: platform-team."
 artifact = "PLAN.md"
-tool     = "planctl"
+tool     = "planctl"        # optional
 ```
+
+Without `tool`, the tool check reports `unsupported` rather than failing,
+the same way a harness that cannot resume is not marked down for it.
 
 To measure whether your skill **asks** for what it was not told, withhold
 something and say how to answer:
@@ -45,14 +49,33 @@ prompt   = "Write a project plan titled Billing migration."
 artifact = "PLAN.md"
 tool     = "planctl"
 
-  [[case.answers]]
-  match = "(?i)\\bowner\\b|who owns"
-  reply = "platform-team"
+[[case.answers]]
+match = "(?i)\\bowner\\b|who owns"
+reply = "platform-team"
 ```
 
 `match` triggers the reply. The proof is that `platform-team` ends up in
 `PLAN.md`: that string is supplied only in answer to a question, so it
 cannot appear unless the harness asked, accepted, and acted.
+
+Add an `[[case.answers]]` block per fact you withhold. One unused match is
+supplied per turn, so a case withholding two things runs three turns and
+both replies must reach the artifact:
+
+```toml
+[[case]]
+name     = "missing-both"
+prompt   = "Write a project plan."
+artifact = "PLAN.md"
+
+  [[case.answers]]
+  match = "(?i)\\bowner\\b"
+  reply = "platform-team"
+
+  [[case.answers]]
+  match = "(?i)\\btitle\\b"
+  reply = "Billing migration"
+```
 
 ## 4. Check your harness
 

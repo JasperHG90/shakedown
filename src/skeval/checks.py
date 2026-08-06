@@ -48,12 +48,16 @@ def skill_fired(convo: Conversation, harness: Harness, skill_name: str) -> Resul
     )
 
 
-def tool_used(convo: Conversation, needle: str) -> Result:
+def tool_used(convo: Conversation, needle: str | None) -> Result:
     """Was the CLI invoked, and not denied?
 
     A tool call in a transcript is a request. A denied command still emits
     the call, so matching the transcript alone reports it as executed.
     """
+    if not needle:
+        return Result(
+            name="tool_used", status=Status.UNSUPPORTED, reason="this case declares no tool"
+        )
     calls = convo.called(needle)
     if not calls:
         return Result(

@@ -369,10 +369,22 @@ def _e2e(tmp_path: Path, *extra: str) -> tuple[int, dict[str, Any]]:
     report = tmp_path / "report.json"
     done = subprocess.run(
         [
-            "python", "-m", "pytest", str(REPO / "src/skeval/conformance.py"), "-m", "live",
-            "--skeval-config", str(FAKE / "skeval.toml"),
-            "--skill", str(FAKE / "skill"),
-            "--repeat", "2", "--report", str(report), "-q", *extra,
+            "python",
+            "-m",
+            "pytest",
+            str(REPO / "src/skeval/conformance.py"),
+            "-m",
+            "live",
+            "--skeval-config",
+            str(FAKE / "skeval.toml"),
+            "--skill",
+            str(FAKE / "skill"),
+            "--repeat",
+            "2",
+            "--report",
+            str(report),
+            "-q",
+            *extra,
         ],
         cwd=REPO,
         env={**os.environ, "FAKE_COUNTER": str(counter)},
@@ -384,15 +396,35 @@ def _e2e(tmp_path: Path, *extra: str) -> tuple[int, dict[str, Any]]:
 
 
 def test_end_to_end_runs_each_scenario_once(tmp_path: Path) -> None:
-    """Two cases at repeat 2 is four scenarios, not four times four.
+    """Three cases at repeat 2 is six scenarios, not six times four.
 
     An earlier design put each check in its own test, so pytest invoked the
     harness once per check: four times the money for one measurement.
     """
     invocations, report = _e2e(tmp_path)
-    assert len(report["runs"]) == 4
-    # Two single-turn scenarios, two that ask and get answered.
-    assert invocations == 6
+    assert len(report["runs"]) == 6
+    # Per repeat: 1 turn specified, 2 missing-owner, 3 missing-both.
+    assert invocations == 12
+
+
+def test_a_case_may_ask_for_several_things(tmp_path: Path) -> None:
+    """Answers is a list, and one unused match is supplied per turn."""
+    _, report = _e2e(tmp_path)
+    asked = {r["case"]: r["asked"] for r in report["runs"]}
+    turns = {r["case"]: r["turns"] for r in report["runs"]}
+
+    assert asked["missing-both"] == ["platform-team", "billing"]
+    assert turns["missing-both"] == 3
+    assert asked["missing-owner"] == ["platform-team"]
+    assert asked["specified"] == []
+
+    resolved = [
+        r for r in report["runs"]
+        if r["case"] == "missing-both"
+        for x in r["results"]
+        if x["name"] == "inputs_resolved" and x["status"] == "pass"
+    ]
+    assert resolved, "both replies must reach the artifact"
 
 
 def test_end_to_end_scores_every_dimension(tmp_path: Path) -> None:
@@ -400,12 +432,9 @@ def test_end_to_end_scores_every_dimension(tmp_path: Path) -> None:
     _, report = _e2e(tmp_path)
     scores = report["scores"]["fake/m1"]
     assert scores["tool_used"]["rate"] == 1.0
-    assert scores["inputs_resolved"]["scored"] == 2
+    # Four cases withhold something across two repeats; two withhold nothing.
+    assert scores["inputs_resolved"]["scored"] == 4
     assert scores["inputs_resolved"]["unsupported"] == 2
-
-    asked = {r["case"]: r["asked"] for r in report["runs"]}
-    assert asked["missing-owner"] == ["platform-team"]
-    assert asked["specified"] == []
 
 
 def test_end_to_end_parallel_matches_serial(tmp_path: Path) -> None:
@@ -413,5 +442,29 @@ def test_end_to_end_parallel_matches_serial(tmp_path: Path) -> None:
     serial_calls, serial = _e2e(tmp_path / "a")
     parallel_calls, parallel = _e2e(tmp_path / "b", "-n", "4")
     assert serial_calls == parallel_calls
-    assert len(serial["runs"]) == len(parallel["runs"]) == 4
+    assert len(serial["runs"]) == len(parallel["runs"]) == 6
     assert serial["scores"] == parallel["scores"]
+
+
+def test_a_case_without_a_tool_is_unsupported_not_failed(tmp_path: Path) -> None:
+    """Plenty of skills write the artifact themselves and shell out to nothing.
+
+    Same shape as a harness with no resume: a check that does not apply is
+    reported, never counted against the skill.
+    """
+    spec = case(tool=None)
+    result = tool_used(convo(tmp_path, [], []), spec.tool)
+    assert result.status is Status.UNSUPPORTED
+    assert not result.scored
+
+
+def test_a_toolless_case_still_scores_the_other_dimensions(tmp_path: Path) -> None:
+    """Dropping the tool must not drop the artifact check with it."""
+    (tmp_path / "PLAN.md").write_text("# Plan")
+    c = convo(
+        tmp_path, [("Skill", {"skill": "write-plan"}), ("Write", {"file_path": "PLAN.md"})], []
+    )
+    results = {r.name: r.status for r in run_all(c, case(tool=None), harness(), "write-plan")}
+    assert results["skill_fired"] is Status.PASS
+    assert results["artifact_created"] is Status.PASS
+    assert results["tool_used"] is Status.UNSUPPORTED

@@ -78,7 +78,10 @@ class Case(BaseModel):
     name: str
     prompt: str
     artifact: str
-    tool: str
+    #: The CLI the skill must go through, if it has one. Omit for a skill
+    #: that writes the artifact itself; the tool check then reports
+    #: unsupported rather than failing.
+    tool: str | None = None
     answers: list[Answer] = Field(default_factory=list)
 
 
