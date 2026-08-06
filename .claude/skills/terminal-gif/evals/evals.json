@@ -1,0 +1,39 @@
+{
+  "skill_name": "terminal-gif",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Make a GIF that shows running `ls -la` and then `cat README.md | head -20` in this repo. Use a nice dark theme and save it to assets/ls-demo.gif.",
+      "expected_output": "A .tape file plus a non-empty assets/ls-demo.gif rendered with VHS, driving the real ls and cat commands (not faked echo output), with a dark theme set.",
+      "assertions": [
+        "A .tape file was created",
+        "assets/ls-demo.gif exists and is non-empty",
+        "vhs validate passes on the generated tape",
+        "The tape runs the real `ls -la` and `cat` commands rather than echoing fake output",
+        "The tape sets a dark Theme"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I'm writing a README for a fictional CLI tool called `taskwarp`. Create a clean demo GIF for it showing `taskwarp add \"ship release\"` then `taskwarp list` showing a couple of tasks. Save it to assets/taskwarp-demo.gif.",
+      "expected_output": "A polished scripted demo: a .tape file and a non-empty assets/taskwarp-demo.gif that shows the taskwarp add and list commands with readable pacing and a clean look (theme + ideally a window bar).",
+      "assertions": [
+        "A .tape file was created",
+        "assets/taskwarp-demo.gif exists and is non-empty",
+        "The tape includes both `taskwarp add` and `taskwarp list` commands",
+        "The tape sets a Theme and uses deliberate pacing (Sleep or TypingSpeed) so steps are readable"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Record a short demo of the Python REPL: start python3, compute 2**10, then print('hello'), then exit. I want both a GIF and an mp4 in the assets folder.",
+      "expected_output": "A single .tape file that drives the real python3 REPL and emits two non-empty files (a .gif and an .mp4) in assets/.",
+      "assertions": [
+        "A .tape file was created",
+        "A non-empty .gif was produced in assets/",
+        "A non-empty .mp4 was produced in assets/",
+        "The tape launches python3 and exits the REPL cleanly (exit() or Ctrl+D)"
+      ]
+    }
+  ]
+}

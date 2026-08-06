@@ -4,7 +4,10 @@
 Keeps session state in the workspace so resume actually carries context,
 and asks for missing facts one at a time.
 """
-import json, os, sys
+
+import json
+import os
+import sys
 from pathlib import Path
 
 args = sys.argv[1:]
@@ -21,7 +24,11 @@ state = json.loads(state_path.read_text()) if resuming and state_path.exists() e
 state.setdefault("known", {})
 state.setdefault("pending", None)
 
-def emit(obj): print(json.dumps(obj), flush=True)
+
+def emit(obj):
+    """Write one stream-json event to stdout."""
+    print(json.dumps(obj), flush=True)
+
 
 WANTED = ("owner", "title")
 
@@ -35,21 +42,46 @@ else:
             state["known"][field] = text.lower().split(marker, 1)[1].split(".")[0].strip()
 
 emit({"type": "system", "subtype": "init", "skills": ["fake-skill"], "mcp_servers": []})
-emit({"type": "assistant", "message": {"content": [
-    {"type": "tool_use", "name": "Skill", "input": {"skill": "fake-skill"}}]}})
+emit(
+    {
+        "type": "assistant",
+        "message": {
+            "content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "fake-skill"}}]
+        },
+    }
+)
 
 missing = [f for f in WANTED if f not in state["known"]]
 if missing:
     state["pending"] = missing[0]
     state_path.write_text(json.dumps(state))
-    emit({"type": "assistant", "message": {"content": [
-        {"type": "text", "text": f"What is the {missing[0]} for this work?"}]}})
+    emit(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": f"What is the {missing[0]} for this work?"}]
+            },
+        }
+    )
     emit({"type": "result", "permission_denials": []})
     sys.exit(0)
 
 state_path.write_text(json.dumps(state))
 known = state["known"]
-emit({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash",
-      "input": {"command": f"faketool write --owner {known['owner']} --title {known['title']}"}}]}})
+command = f"faketool write --owner {known['owner']} --title {known['title']}"
+emit(
+    {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "name": "Bash",
+                    "input": {"command": command},
+                }
+            ]
+        },
+    }
+)
 Path("OUT.md").write_text(f"# {known['title']}\nOwner: {known['owner']}\n")
 emit({"type": "result", "permission_denials": []})

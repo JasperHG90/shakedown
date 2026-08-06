@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 import stamina
@@ -102,11 +103,19 @@ def converse(
     *,
     model: str,
     timeout_s: float = 300.0,
+    notify: Callable[[int], None] | None = None,
 ) -> Conversation:
-    """Run ``case`` to completion, answering questions as they arrive."""
+    """Run ``case`` to completion, answering questions as they arrive.
+
+    ``notify`` is called with the index of each turn about to start. A turn
+    is a whole model round trip, so it is the only unit slow enough to be
+    worth reporting, and the caller decides what to say about it.
+    """
     sid = str(uuid.uuid4())
     convo = Conversation(workspace=box.path)
 
+    if notify:
+        notify(0)
     argv = harness.render(harness.start, prompt=case.prompt, model=model, sid=sid)
     turn, convo.timed_out = _turn(box, harness, argv, "turn0", timeout_s)
     convo.turns.append(turn)
@@ -123,6 +132,8 @@ def converse(
         if reply is None:
             break
         convo.given.append(reply)
+        if notify:
+            notify(index)
         argv = harness.render(harness.resume, reply=reply, model=model, sid=sid)
         turn, convo.timed_out = _turn(box, harness, argv, f"turn{index}", timeout_s)
         convo.turns.append(turn)

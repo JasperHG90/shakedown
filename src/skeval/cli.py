@@ -5,13 +5,16 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 from skeval.console import checks_table, console
-from skeval.models import ConfigError, load_config
+from skeval.models import ConfigError, Harness, load_config
 from skeval.report import REPORT_NAME
+
+if TYPE_CHECKING:
+    from skeval.doctor import Diagnosis
 
 app = typer.Typer(
     add_completion=False, help="Harness conformance testing for agent skills.", no_args_is_help=True
@@ -59,6 +62,11 @@ def run(
         argv += ["--repeat", str(repeat)]
     if parallel > 1:
         argv += ["-n", str(parallel), "--dist", "loadgroup"]
+    elif console.is_terminal:
+        # Capture would swallow the live progress. Nothing in a conformance
+        # run prints except skeval itself, so there is nothing to capture.
+        # Parallel runs opt out: several workers would fight over one line.
+        argv += ["-s"]
     if keep:
         argv += ["--keep-workspaces"]
     raise typer.Exit(subprocess.run([*argv, *(pytest_args or [])], check=False).returncode)
@@ -85,6 +93,24 @@ def init(
     console.print(f"\nnext: [cyan]skeval doctor[/], then [cyan]skeval run {skill}[/]")
 
 
+def _diagnose(name: str, harness: Harness, *, model: str, sandbox: str) -> Diagnosis:
+    """Run the canary behind a spinner.
+
+    A canary turn is a whole model round trip, so without this the command
+    looks hung for the better part of a minute.
+    """
+    from skeval.doctor import diagnose
+
+    label = f"[cyan]{name}[/]"
+    with console.status(f"{label}: starting", spinner="dots") as spinner:
+        return diagnose(
+            harness,
+            model=model,
+            backend=sandbox,
+            notify=lambda step: spinner.update(f"{label}: {step}"),
+        )
+
+
 @app.command()
 def doctor(
     config: Annotated[Path | None, typer.Option("--config")] = None,
@@ -92,8 +118,6 @@ def doctor(
     sandbox: Annotated[str, typer.Option(help="tmp or container")] = "tmp",
 ) -> None:
     """Check a harness against the prerequisites."""
-    from skeval.doctor import diagnose
-
     try:
         loaded = load_config(config)
     except ConfigError as exc:
@@ -107,7 +131,7 @@ def doctor(
             console.print(f"[red]unknown harness {name!r}[/]")
             raise typer.Exit(2)
         model = next((t.model for t in loaded.targets() if t.harness.name == name), "")
-        found = diagnose(loaded.harness[name], model=model, backend=sandbox)
+        found = _diagnose(name, loaded.harness[name], model=model, sandbox=sandbox)
         console.print(checks_table(name, found.checks))
         console.print(found.verdict())
         console.print(f"[dim]canary workspace: {found.workspace}[/]")

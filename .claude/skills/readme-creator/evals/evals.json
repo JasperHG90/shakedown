@@ -1,0 +1,36 @@
+{
+  "skill_name": "readme-creator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create a README for this project. The repo is called aim (Agent Integrations Manager) and it scaffolds agent-engineering projects, manages reusable rules, and installs Claude skills from git repos. It already has a logo at assets/logo.png and a demo GIF at assets/demo.gif.",
+      "expected_output": "A README.md with a centered logo at the top, a clear tagline, a why/vision section, feature bullets, quick start, install instructions, usage/screenshots section, and contributing/dev section near the end.",
+      "assertions": [
+        "Logo appears in a centered <p align='center'> block at the top",
+        "A 'Features' section appears before installation instructions",
+        "Install section contains a fenced code block",
+        "Contributing or Dev section is near the bottom"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Write a minimal README for a tiny JavaScript utility called 'slugify-text' that converts strings to URL slugs. It has one install command and one usage example.",
+      "expected_output": "A compact README with a centered logo placeholder, tagline, one-paragraph why, feature bullets, install, usage, and a short contributing note.",
+      "assertions": [
+        "README is under 80 lines",
+        "Usage or quick start appears before or alongside install",
+        "No unexplained jargon"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Improve the README for an existing project so it looks more trustworthy and follows a modern theme. Ask the user which theme they want from the theme-factory presets.",
+      "expected_output": "A polished README that applies a chosen color theme consistently, keeps the centered logo, and follows the ladder of abstraction.",
+      "assertions": [
+        "README references a named theme or applies a consistent accent color",
+        "Badges or visual elements use a cohesive color palette",
+        "Ladder order is preserved"
+      ]
+    }
+  ]
+}

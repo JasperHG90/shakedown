@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -67,11 +68,34 @@ class Diagnosis(BaseModel):
         return "[green]qualifies[/]"
 
 
-def diagnose(harness: Harness, *, model: str, backend: str = "tmp") -> Diagnosis:
+#: What each canary turn actually exercises. One conversation settles every
+#: prerequisite, so progress is reported per turn rather than per check:
+#: claiming to "check prerequisite 3" would describe work that never
+#: happens separately.
+TURN_LABELS = (
+    "running the canary: headless run, skill discovery, output parsing",
+    "resuming the session",
+)
+
+
+def diagnose(
+    harness: Harness,
+    *,
+    model: str,
+    backend: str = "tmp",
+    notify: Callable[[str], None] | None = None,
+) -> Diagnosis:
     """Run the canary and report on the prerequisites."""
     skill = Skill(path=CANARY_DIR, name=CANARY_NAME, cases=[CANARY_CASE])
+    if notify:
+        notify(f"preparing the {backend} sandbox")
     box = create(harness, skill, backend=backend, keep=True)
-    convo = converse(box, harness, CANARY_CASE, model=model, timeout_s=180.0)
+
+    def announce(index: int) -> None:
+        if notify:
+            notify(TURN_LABELS[index] if index < len(TURN_LABELS) else f"turn {index + 1}")
+
+    convo = converse(box, harness, CANARY_CASE, model=model, timeout_s=180.0, notify=announce)
     first = convo.first
 
     fired = convo.skill_fired(harness, CANARY_NAME)

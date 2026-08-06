@@ -1,0 +1,142 @@
+manifest_version = 11
+symlinks = []
+agents = []
+mcp_servers = []
+plugins = []
+targets = []
+
+[archetype]
+qualified_name = "default"
+risk_acknowledged = false
+
+[policy]
+
+[repos]
+4290899e4697f267 = "https://github.com/jasperhg90/skills"
+
+[[rule]]
+qualified_name = "4290899e4697f267/async-python"
+repo_alias = "4290899e4697f267"
+source_path = "rules/async-python.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/adversarial-reviews"
+repo_alias = "4290899e4697f267"
+source_path = "rules/adversarial-reviews.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/dependency-choice"
+repo_alias = "4290899e4697f267"
+source_path = "rules/dependency-choice.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/httpx-for-http"
+repo_alias = "4290899e4697f267"
+source_path = "rules/httpx-for-http.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/plain-language"
+repo_alias = "4290899e4697f267"
+source_path = "rules/plain-language.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/pre-existing-issues"
+repo_alias = "4290899e4697f267"
+source_path = "rules/pre-existing-issues.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/prek-code-quality"
+repo_alias = "4290899e4697f267"
+source_path = "rules/prek-code-quality.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/prompts-may-code-must"
+repo_alias = "4290899e4697f267"
+source_path = "rules/prompts-may-code-must.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/pydantic-boundaries"
+repo_alias = "4290899e4697f267"
+source_path = "rules/pydantic-boundaries.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/python-docstrings"
+repo_alias = "4290899e4697f267"
+source_path = "rules/python-docstrings.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/python-testing"
+repo_alias = "4290899e4697f267"
+source_path = "rules/python-testing.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/python-type-hints"
+repo_alias = "4290899e4697f267"
+source_path = "rules/python-type-hints.md"
+risk_acknowledged = false
+
+[[rule]]
+qualified_name = "4290899e4697f267/uv-installer"
+repo_alias = "4290899e4697f267"
+source_path = "rules/uv-installer.md"
+risk_acknowledged = false
+
+[[skill]]
+qualified_name = "4290899e4697f267/generate-art"
+repo_alias = "4290899e4697f267"
+source_path = "skills/tools/generate-art"
+target_dir = ".claude/skills/generate-art"
+risk_acknowledged = false
+
+[[skill]]
+qualified_name = "4290899e4697f267/doc-write"
+repo_alias = "4290899e4697f267"
+source_path = "skills/documentation/doc-write"
+target_dir = ".claude/skills/doc-write"
+risk_acknowledged = false
+
+[[skill]]
+qualified_name = "4290899e4697f267/python-review"
+repo_alias = "4290899e4697f267"
+source_path = "skills/development/python-review"
+target_dir = ".claude/skills/python-review"
+risk_acknowledged = false
+
+[[skill]]
+qualified_name = "4290899e4697f267/readme-creator"
+repo_alias = "4290899e4697f267"
+source_path = "skills/documentation/readme-creator"
+target_dir = ".claude/skills/readme-creator"
+risk_acknowledged = false
+
+[[skill]]
+qualified_name = "4290899e4697f267/release"
+repo_alias = "4290899e4697f267"
+source_path = "skills/ops/release"
+target_dir = ".claude/skills/release"
+risk_acknowledged = false
+
+[[skill]]
+qualified_name = "4290899e4697f267/remove-image-background"
+repo_alias = "4290899e4697f267"
+source_path = "skills/tools/remove-image-background"
+target_dir = ".claude/skills/remove-image-background"
+risk_acknowledged = false
+
+[[skill]]
+qualified_name = "4290899e4697f267/terminal-gif"
+repo_alias = "4290899e4697f267"
+source_path = "skills/documentation/terminal-gif"
+target_dir = ".claude/skills/terminal-gif"
+risk_acknowledged = false

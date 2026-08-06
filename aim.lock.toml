@@ -1,0 +1,259 @@
+manifest_version = 17
+agents = []
+mcp_servers = []
+plugins = []
+targets = []
+managed_files = []
+symlinks = []
+
+[[skill]]
+qualified_name = "4290899e4697f267/generate-art"
+repo_alias = "4290899e4697f267"
+source_path = "skills/tools/generate-art"
+target_dir = ".claude/skills/generate-art"
+history = []
+content_hash = "832c53b5164ae39bf7c0329e263f2fb55a00141f21774a90084e695e4954f73f"
+risk_acknowledged = false
+
+[skill.current]
+sha = "516c105a9d8260c80a9d1fd8cb4004fe22a74225"
+installed_at = "2026-08-06T20:01:42.004170Z"
+
+[[skill]]
+qualified_name = "4290899e4697f267/doc-write"
+repo_alias = "4290899e4697f267"
+source_path = "skills/documentation/doc-write"
+target_dir = ".claude/skills/doc-write"
+history = []
+content_hash = "3a0386265d011ddf80b85ebeaf323eb8722a76fe9bae1bae80473e1c4a736c31"
+risk_acknowledged = false
+
+[skill.current]
+sha = "1d92f60fed5599f0f04bbcfe72733b0aa60be7c8"
+installed_at = "2026-08-06T20:01:45.151909Z"
+
+[[skill]]
+qualified_name = "4290899e4697f267/python-review"
+repo_alias = "4290899e4697f267"
+source_path = "skills/development/python-review"
+target_dir = ".claude/skills/python-review"
+history = []
+content_hash = "117b037250a0105dd7ff7b63516ff9c44291707ec8583e9ae110b83932689b03"
+risk_acknowledged = false
+
+[skill.current]
+sha = "6ff5b0fcb970e0f83e61ad5d9e48f0324eee7894"
+installed_at = "2026-08-06T20:01:49.594386Z"
+
+[[skill]]
+qualified_name = "4290899e4697f267/readme-creator"
+repo_alias = "4290899e4697f267"
+source_path = "skills/documentation/readme-creator"
+target_dir = ".claude/skills/readme-creator"
+history = []
+content_hash = "3e2e2e5a78baadea6631bc9db3e9e6acda2d3c3807d0c9d3705929dd05cd93ab"
+risk_acknowledged = false
+
+[skill.current]
+sha = "1d92f60fed5599f0f04bbcfe72733b0aa60be7c8"
+installed_at = "2026-08-06T20:01:50.974636Z"
+
+[[skill]]
+qualified_name = "4290899e4697f267/release"
+repo_alias = "4290899e4697f267"
+source_path = "skills/ops/release"
+target_dir = ".claude/skills/release"
+history = []
+content_hash = "9464803dbf2f5bcb306122f52bc286bb3c2d1d891b6b1a14c2ec602c1cb7730c"
+risk_acknowledged = false
+
+[skill.current]
+sha = "65c95907825ba0728bb0c18c89c95fd24d47583e"
+installed_at = "2026-08-06T20:01:54.966941Z"
+
+[[skill]]
+qualified_name = "4290899e4697f267/remove-image-background"
+repo_alias = "4290899e4697f267"
+source_path = "skills/tools/remove-image-background"
+target_dir = ".claude/skills/remove-image-background"
+history = []
+content_hash = "5153810b9f203e830e290f8d5dc90c66bc259e3afa2548c9e07f4e03cc9da4fb"
+risk_acknowledged = false
+
+[skill.current]
+sha = "8618a2dea8b1997e94bab553b436054ab7fec9c3"
+installed_at = "2026-08-06T20:01:56.571036Z"
+
+[[skill]]
+qualified_name = "4290899e4697f267/terminal-gif"
+repo_alias = "4290899e4697f267"
+source_path = "skills/documentation/terminal-gif"
+target_dir = ".claude/skills/terminal-gif"
+history = []
+content_hash = "599a57b4fa4629c81fd9d53b3f7c6617b230fab04cd9dde33d318bb0c1756711"
+risk_acknowledged = false
+
+[skill.current]
+sha = "516c105a9d8260c80a9d1fd8cb4004fe22a74225"
+installed_at = "2026-08-06T20:01:58.185531Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/async-python"
+repo_alias = "4290899e4697f267"
+source_path = "rules/async-python.md"
+history = []
+content_hash = "898378b88c92b7f66bb0e5ae07f68ca31e2b74359dff969018c2aa704867dfbb"
+risk_acknowledged = false
+
+[rule.current]
+sha = "897efcbc6797f433d7bd0adf15aed98d1f981bce"
+installed_at = "2026-08-06T20:01:05.347388Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/adversarial-reviews"
+repo_alias = "4290899e4697f267"
+source_path = "rules/adversarial-reviews.md"
+history = []
+content_hash = "85cf17902b6d323f69208d06a4a0a9d370db4412d5e603f98092c92b9da2f16a"
+risk_acknowledged = false
+
+[rule.current]
+sha = "801250ade7cf35f7d39764e3d4528ada7f6db6db"
+installed_at = "2026-08-06T20:01:08.255691Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/dependency-choice"
+repo_alias = "4290899e4697f267"
+source_path = "rules/dependency-choice.md"
+history = []
+content_hash = "e88c3cb37b5b40ce3126e2ae43793e78d0c3f1aae95bb70c6af4390df2ea336a"
+risk_acknowledged = false
+
+[rule.current]
+sha = "897efcbc6797f433d7bd0adf15aed98d1f981bce"
+installed_at = "2026-08-06T20:01:11.867764Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/httpx-for-http"
+repo_alias = "4290899e4697f267"
+source_path = "rules/httpx-for-http.md"
+history = []
+content_hash = "34376045ff2c4035b6e4ebd493addc0247f94ae35bcfec70a3121ff1caf2065f"
+risk_acknowledged = false
+
+[rule.current]
+sha = "897efcbc6797f433d7bd0adf15aed98d1f981bce"
+installed_at = "2026-08-06T20:01:14.195841Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/plain-language"
+repo_alias = "4290899e4697f267"
+source_path = "rules/plain-language.md"
+history = []
+content_hash = "702797e816fe21a289efc8c99d467de4ef1bdfdaa76f213f92136c4877d330a1"
+risk_acknowledged = false
+
+[rule.current]
+sha = "ca35920710b2e8f2d017b07c35e7fceed2ce04a4"
+installed_at = "2026-08-06T20:01:15.888631Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/pre-existing-issues"
+repo_alias = "4290899e4697f267"
+source_path = "rules/pre-existing-issues.md"
+history = []
+content_hash = "dcc55c18052e0fa373567766756108db80508e86d97c2599ef36d44f646fa846"
+risk_acknowledged = false
+
+[rule.current]
+sha = "1d92f60fed5599f0f04bbcfe72733b0aa60be7c8"
+installed_at = "2026-08-06T20:01:17.182784Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/prek-code-quality"
+repo_alias = "4290899e4697f267"
+source_path = "rules/prek-code-quality.md"
+history = []
+content_hash = "2ee0e6b84e8fddea78b3bb96ba46f322229e5f2ffe35ca3f15cb2a81e954e83b"
+risk_acknowledged = false
+
+[rule.current]
+sha = "7e0ee1b4260c1bbe9b4c917ccc6a6aa5e169609c"
+installed_at = "2026-08-06T20:01:18.334193Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/prompts-may-code-must"
+repo_alias = "4290899e4697f267"
+source_path = "rules/prompts-may-code-must.md"
+history = []
+content_hash = "3e3ea987e26afd1658c6b2756860f01a7c056f81697285a1a1df6e7219572acf"
+risk_acknowledged = false
+
+[rule.current]
+sha = "897efcbc6797f433d7bd0adf15aed98d1f981bce"
+installed_at = "2026-08-06T20:01:20.259888Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/pydantic-boundaries"
+repo_alias = "4290899e4697f267"
+source_path = "rules/pydantic-boundaries.md"
+history = []
+content_hash = "2ec55d6af60b5a5a267f599e93d8e7c81e8b0934e16108e880ef6f2e8ba98300"
+risk_acknowledged = false
+
+[rule.current]
+sha = "897efcbc6797f433d7bd0adf15aed98d1f981bce"
+installed_at = "2026-08-06T20:01:22.879034Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/python-docstrings"
+repo_alias = "4290899e4697f267"
+source_path = "rules/python-docstrings.md"
+history = []
+content_hash = "6a785e29638026fbd8fe745555e831d33fa733170e508c4a6c1b419978d4191b"
+risk_acknowledged = false
+
+[rule.current]
+sha = "8d619fc26fbdc64773a398798dd451875eec92bb"
+installed_at = "2026-08-06T20:01:24.244635Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/python-testing"
+repo_alias = "4290899e4697f267"
+source_path = "rules/python-testing.md"
+history = []
+content_hash = "3050fa75058befb0550157fda10915f7d98af3d3bcbd58dd3d277bce658e21c0"
+risk_acknowledged = false
+
+[rule.current]
+sha = "8d619fc26fbdc64773a398798dd451875eec92bb"
+installed_at = "2026-08-06T20:01:25.307711Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/python-type-hints"
+repo_alias = "4290899e4697f267"
+source_path = "rules/python-type-hints.md"
+history = []
+content_hash = "2684c38e2ab81f37ea4d2f17b7b3cff4a97c58d9d1ff25f3706e9145d683fd1e"
+risk_acknowledged = false
+
+[rule.current]
+sha = "59b33481710b92f88e5c76b8dfc9caa6f5175677"
+installed_at = "2026-08-06T20:01:26.570163Z"
+
+[[rule]]
+qualified_name = "4290899e4697f267/uv-installer"
+repo_alias = "4290899e4697f267"
+source_path = "rules/uv-installer.md"
+history = []
+content_hash = "939459455231671d1206da8875d143ff418893f51bef73e3add42668d220972c"
+risk_acknowledged = false
+
+[rule.current]
+sha = "801250ade7cf35f7d39764e3d4528ada7f6db6db"
+installed_at = "2026-08-06T20:01:27.698987Z"
+
+[managed_region_hashes]
+
+[repos]
+4290899e4697f267 = "https://github.com/jasperhg90/skills"

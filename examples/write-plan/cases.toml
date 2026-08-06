@@ -9,10 +9,10 @@ name     = "missing-owner"
 prompt   = "Write a project plan titled Billing migration."
 tool     = "planctl"
 
-  [[case.artifacts]]
-  path     = "PLAN.md"
-  contains = ["Billing migration"]
+[[case.artifacts]]
+path     = "PLAN.md"
+contains = ["Billing migration"]
 
-  [[case.answers]]
-  match = "(?i)\\bowner\\b|who owns|who is responsible"
-  reply = "platform-team"
+[[case.answers]]
+match = "(?i)\\bowner\\b|who owns|who is responsible"
+reply = "platform-team"

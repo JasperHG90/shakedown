@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
 
 import pytest
+from rich.status import Status as Spinner
 
 from skeval.checks import Result, Status, run_all
 from skeval.console import console, failures_table, scores_table
@@ -16,6 +17,61 @@ from skeval.sandbox import create
 
 #: Where the in-process report hangs, so the terminal hook can find it.
 REPORT = pytest.StashKey[Report]()
+#: The live spinner, and [done, total] scenarios.
+PROGRESS = pytest.StashKey[Spinner]()
+TALLY = pytest.StashKey[list[int]]()
+
+
+def _spinner(config: pytest.Config) -> Spinner | None:
+    """The live spinner, if this session has one."""
+    return config.stash.get(PROGRESS, None)
+
+
+def _say(config: pytest.Config, text: str) -> None:
+    """Update the spinner, if anything is watching."""
+    if status := _spinner(config):
+        done, total = config.stash[TALLY]
+        status.update(f"[dim]{done}/{total}[/] {text}")
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Start the spinner, when there is a terminal to animate.
+
+    A run is minutes of silence otherwise: one scenario is a whole model
+    round trip per turn. Capture has to be off for the animation to reach
+    the terminal rather than a discarded buffer, which is why `skeval run`
+    passes `-s`. Under xdist the workers share one terminal, so the
+    controller stays quiet rather than interleaving several spinners.
+    """
+    config = session.config
+    if _worker_id(config) or config.option.capture != "no" or not console.is_terminal:
+        return
+    config.stash[TALLY] = [0, 0]
+    status = console.status("starting", spinner="dots")
+    status.start()
+    config.stash[PROGRESS] = status
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Now the denominator is known."""
+    if _spinner(session.config):
+        session.config.stash[TALLY][1] = len(session.items)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_report_teststatus(
+    report: pytest.CollectReport | pytest.TestReport, config: pytest.Config
+) -> Generator[None, tuple[str, str, str], tuple[str, str, str]]:
+    """Drop pytest's inline status character while the spinner is live.
+
+    Both write to the same line, so the stray `.` or `s` lands inside the
+    spinner's text. The counts and the failure summary are untouched: only
+    the per-test character goes.
+    """
+    category, short, verbose = yield
+    if _spinner(config):
+        return category, "", verbose
+    return category, short, verbose
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -106,6 +162,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     failure. This hook runs with capture suspended.
     """
     config = terminalreporter.config
+    if spinner := _spinner(config):
+        spinner.stop()
     if _worker_id(config):
         return
     built = _collect(config)
@@ -158,12 +216,15 @@ def conformance(
         backend=str(request.config.getoption("--sandbox")),
         keep=keep,
     )
+    where = f"[cyan]{target.label}[/] {case.name} run{run_index}"
+    _say(request.config, f"{where}: preparing")
     convo = converse(
         box,
         target.harness,
         case,
         model=target.model,
         timeout_s=float(request.config.getoption("--timeout")),
+        notify=lambda turn: _say(request.config, f"{where}: turn {turn + 1}"),
     )
     results = run_all(convo, case, target.harness, skill.name)
 
@@ -202,4 +263,9 @@ def conformance(
     )
 
     request.addfinalizer(box.cleanup)
+    if spinner := _spinner(request.config):
+        request.config.stash[TALLY][0] += 1
+        spinner.update(
+            f"[dim]{request.config.stash[TALLY][0]}/{request.config.stash[TALLY][1]}[/] done"
+        )
     return results
