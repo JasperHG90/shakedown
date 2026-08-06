@@ -1,4 +1,4 @@
-# skillconf
+# skeval
 
 Given a harness and a model, does the same query produce the same
 procedural outcome?
@@ -17,14 +17,21 @@ MVP. Claude Code only. Tempdir sandbox; the container backend described in
 the design is not built yet, so runs are **not fully isolated** and
 `doctor` reports what else was visible.
 
+New here? [`GETTING_STARTED.md`](GETTING_STARTED.md) walks through
+evaluating your own skill and adding your own harness.
+
 ## Try it
 
 ```bash
 uv sync
-uv run pytest                 # 28 offline tests, no spend
-uv run skillconf doctor       # verify the harness, one cheap task
-uv run skillconf run          # the matrix. spends money.
+uv run pytest                                   # offline, no spend
+uv run skeval doctor                            # verify the harness
+uv run skeval run examples/write-plan           # the matrix. spends money.
+uv run skeval run ./my-skill --repeat 5 --parallel 5
 ```
+
+The skill under test is a path. Nothing about it is configured anywhere
+else: `skeval.toml` describes harnesses only.
 
 `doctor` on this machine:
 
@@ -61,7 +68,7 @@ asked, accepted, and acted. No question parsing, no ordering check.
 
 Fill in a `[harness.*]` block and run `doctor`. It verifies five
 prerequisites empirically with a canary skill whose only instruction is to
-run `echo skillconf-ok`. Seeing that call is only possible if the harness
+run `echo skeval-ok`. Seeing that call is only possible if the harness
 ran headless, discovered the skill, surfaced it to the model, followed it,
 and emitted parseable output.
 
@@ -86,7 +93,7 @@ path, and why `doctor` asserts on what the model actually saw.
 ## Layout
 
 ```
-src/skillconf/
+src/skeval/
   config.py     TOML -> Harness, Case, Target
   sandbox.py    ephemeral workspace, skill and bin seeded in
   runner.py     one turn = one subprocess; multi-turn is re-invocation

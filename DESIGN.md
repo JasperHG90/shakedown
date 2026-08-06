@@ -1,4 +1,4 @@
-# skillconf: harness conformance testing for agent skills
+# skeval: harness conformance testing for agent skills
 
 **One sentence:** given a harness and a model, does the same query produce
 the same procedural outcome?
@@ -127,7 +127,7 @@ events.py                     two known stream shapes -> ToolCall, text
 checks.py                     the three assertions
 ```
 
-Config lives in `skillconf.toml`. Harness behavior lives in the harness.
+Config lives in `skeval.toml`. Harness behavior lives in the harness.
 The framework runs things and asserts on what came back.
 
 ### Code budget
@@ -169,11 +169,11 @@ a reason, so the other two checks stay comparable across everything.
 ### `doctor`
 
 ```
-skillconf doctor --harness opencode
+skeval doctor --harness opencode
 ```
 
 The framework ships a **canary skill** whose entire content instructs the
-agent to run `echo skillconf-ok`. Seeing that shell call in the output is
+agent to run `echo skeval-ok`. Seeing that shell call in the output is
 only possible if the harness ran headless, loaded a skill, followed it, and
 emitted parseable output. One cheap task verifies prerequisites 1, 2, 3,
 and 5 at once. A second turn verifies 4.
@@ -292,16 +292,16 @@ reply = "platform-team"
 
 ## The CLI is a thin front for pytest
 
-`skillconf` translates friendly flags into pytest arguments and gets out of
+`skeval` translates friendly flags into pytest arguments and gets out of
 the way. It is a convenience, never a wall.
 
 ```bash
-skillconf init                          # scaffold config + example skill
-skillconf doctor --harness gemini-cli   # verify the five prerequisites
-skillconf run                           # the whole matrix
-skillconf run --harness gemini-cli --repeat 5
-skillconf run --case missing-owner --sandbox tmp
-skillconf run -- -x --pdb               # everything after -- goes to pytest
+skeval init                          # scaffold config + example skill
+skeval doctor --harness gemini-cli   # verify the five prerequisites
+skeval run                           # the whole matrix
+skeval run --harness gemini-cli --repeat 5
+skeval run --case missing-owner --sandbox tmp
+skeval run -- -x --pdb               # everything after -- goes to pytest
 ```
 
 Three rules keep it honest:

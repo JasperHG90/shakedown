@@ -1,0 +1,15 @@
+[[case]]
+name     = "fully-specified"
+prompt   = "Write a project plan. Title: Billing migration. Owner: platform-team."
+artifact = "PLAN.md"
+tool     = "planctl"
+
+[[case]]
+name     = "missing-owner"
+prompt   = "Write a project plan titled Billing migration."
+artifact = "PLAN.md"
+tool     = "planctl"
+
+  [[case.answers]]
+  match = "(?i)\\bowner\\b|who owns|who is responsible"
+  reply = "platform-team"

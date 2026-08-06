@@ -1,0 +1,35 @@
+# Harnesses only. The skill under test is a path given to the entrypoint.
+
+[harness.claude-code]
+start = [
+  "claude", "-p", "{prompt}",
+  "--output-format", "stream-json", "--verbose",
+  "--model", "{model}",
+  "--allowedTools", "Bash", "Write", "Read", "Skill",
+  "--permission-mode", "acceptEdits",
+  "--setting-sources", "project",
+  "--session-id", "{sid}",
+]
+resume = [
+  "claude", "-p", "{reply}",
+  "--output-format", "stream-json", "--verbose",
+  "--model", "{model}",
+  "--allowedTools", "Bash", "Write", "Read", "Skill",
+  "--permission-mode", "acceptEdits",
+  "--setting-sources", "project",
+  "--resume", "{sid}",
+]
+skills = ".claude/skills"
+activation_tool = "Skill"
+image = "node:22-slim"
+install = "npm i -g @anthropic-ai/claude-code@2.1.220"
+
+[harness.claude-code.env]
+HOME = "${HOME}"
+
+[harness.claude-code.events]
+container = "message.content"
+
+[[matrix]]
+harness = "claude-code"
+models  = ["claude-opus-5"]

@@ -1,0 +1,15 @@
+[[case]]
+name     = "specified"
+prompt   = "Write a plan. Owner: platform-team."
+artifact = "OUT.md"
+tool     = "faketool"
+
+[[case]]
+name     = "missing-owner"
+prompt   = "Write a plan."
+artifact = "OUT.md"
+tool     = "faketool"
+
+  [[case.answers]]
+  match = "(?i)owns|owner"
+  reply = "platform-team"
