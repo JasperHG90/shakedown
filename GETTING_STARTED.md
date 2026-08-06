@@ -79,12 +79,12 @@ name   = "scaffold"
 prompt = "Scaffold the billing service."
 tool   = "scaffoldctl"
 
-  [[case.artifacts]]
-  path     = "src/billing/__init__.py"
+[[case.artifacts]]
+path     = "src/billing/__init__.py"
 
-  [[case.artifacts]]
-  path     = "README.md"
-  contains = ["billing", "platform-team"]
+[[case.artifacts]]
+path     = "README.md"
+contains = ["billing", "platform-team"]
 ```
 
 Every declared artifact must exist, be non-empty, and contain each of its
@@ -103,13 +103,13 @@ name     = "missing-both"
 prompt   = "Write a project plan."
 artifact = "PLAN.md"
 
-  [[case.answers]]
-  match = "(?i)\\bowner\\b"
-  reply = "platform-team"
+[[case.answers]]
+match = "(?i)\\bowner\\b"
+reply = "platform-team"
 
-  [[case.answers]]
-  match = "(?i)\\btitle\\b"
-  reply = "Billing migration"
+[[case.answers]]
+match = "(?i)\\btitle\\b"
+reply = "Billing migration"
 ```
 
 ## 4. Check your harness
@@ -167,29 +167,83 @@ The container needs two things your host run gets for free:
 
 ## 6. Read the report
 
-`skeval-report.json` carries every run and the scores derived from them:
+Failures are printed as they happen, so a red run says what broke without
+opening anything:
+
+```
+                                    failures
+┏━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┓
+┃ case          ┃ run ┃ failed           ┃ reason                ┃ workspace   ┃
+┡━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━┩
+│ missing-owner │ 2   │ artifact_created │ PLAN.md lacks         │ /tmp/skeval │
+│               │     │                  │ platform-team         │ -x8f2q1     │
+└───────────────┴─────┴──────────────────┴───────────────────────┴─────────────┘
+```
+
+`skeval-report.json` carries the same thing in three layers.
+
+**`summary`** answers "did it pass, and if not, what broke":
 
 ```json
 {
-  "skill": "write-plan",
-  "sandbox": "tmp",
-  "isolated": false,
-  "runs": [
-    {
-      "target": "claude-code/claude-opus-5",
-      "case": "missing-owner",
-      "run": 0,
-      "turns": 2,
-      "asked": ["platform-team"],
-      "results": [{"name": "tool_used", "status": "pass", "reason": "invoked planctl"}]
-    }
-  ],
-  "scores": {
-    "claude-code/claude-opus-5": {
-      "tool_used": {"passed": 3, "scored": 3, "rate": 1.0, "unsupported": 0, "not_triggered": 0}
-    }
+  "summary": {
+    "runs": 12, "ok": 11, "failed": 1, "not_triggered": 0, "duration_s": 214.7,
+    "failures": [
+      {
+        "target": "claude-code/claude-opus-5",
+        "case": "missing-owner", "run": 2,
+        "failed": ["artifact_created"],
+        "reasons": ["PLAN.md lacks platform-team"],
+        "workspace": "/tmp/skeval-x8f2q1",
+        "streams": ["/tmp/skeval-x8f2q1/.skeval-turn0.jsonl"]
+      }
+    ]
   }
 }
+```
+
+**`runs[]`** is one entry per (target, case, repeat), with the verdicts:
+
+```json
+{
+  "target": "claude-code/claude-opus-5",
+  "case": "missing-owner", "run": 0, "ok": true, "failed": [],
+  "prompt": "Write a project plan titled Billing migration.",
+  "turns": 2, "asked": ["platform-team"], "duration_s": 18.3,
+  "workspace": "/tmp/skeval-a1b2c3", "workspace_kept": false,
+  "results": [{"name": "tool_used", "status": "pass", "reason": "invoked planctl"}]
+}
+```
+
+**`runs[].detail[]`** is what the harness actually did, per turn:
+
+```json
+{
+  "index": 0,
+  "argv": ["claude", "-p", "Write a project plan...", "--session-id", "..."],
+  "exit_code": 0, "duration_s": 11.2,
+  "tool_calls": [{"name": "Skill", "args": {"skill": "write-plan"}},
+                 {"name": "Bash", "args": {"command": "planctl write ..."}}],
+  "said": ["Who owns this plan?"],
+  "denied": [],
+  "stream": "/tmp/skeval-a1b2c3/.skeval-turn0.jsonl"
+}
+```
+
+`argv` is the exact command, so a failing run is reproducible by hand.
+`denied` names tools the harness refused to run, which is the difference
+between a skill that did not try and one that was not allowed to.
+
+A failing run keeps its workspace (`workspace_kept: true`), so the
+artifacts it did write and the raw `stream` are still on disk. Passing runs
+are cleaned up unless you pass `--keep-workspaces`.
+
+**`scores`** is the derived rate per target and dimension:
+
+```json
+{"claude-code/claude-opus-5": {
+  "tool_used": {"passed": 3, "scored": 3, "rate": 1.0,
+                "unsupported": 0, "not_triggered": 0}}}
 ```
 
 `unsupported` and `not_triggered` stay out of `rate`. A harness that cannot

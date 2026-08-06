@@ -8,11 +8,14 @@ from pathlib import Path
 import pytest
 
 from skeval.checks import Result, Status, run_all
-from skeval.console import console, scores_table
+from skeval.console import console, failures_table, scores_table
 from skeval.models import Case, Config, Skill, Target, load_config, load_skill
-from skeval.report import REPORT_NAME, Report, RunRecord
+from skeval.report import REPORT_NAME, Report, RunRecord, TurnRecord
 from skeval.runner import converse
 from skeval.sandbox import create
+
+#: Where the in-process report hangs, so the terminal hook can find it.
+REPORT = pytest.StashKey[Report]()
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -70,6 +73,7 @@ def report(request: pytest.FixtureRequest) -> Iterator[Report]:
         sandbox=str(request.config.getoption("--sandbox")),
         isolated=request.config.getoption("--sandbox") == "container",
     )
+    request.config.stash[REPORT] = built
     yield built
 
     worker = _worker_id(request.config)
@@ -79,34 +83,40 @@ def report(request: pytest.FixtureRequest) -> Iterator[Report]:
         shards = _shard_dir(request.config)
         shards.mkdir(parents=True, exist_ok=True)
         (shards / f"{worker}.json").write_text(built.model_dump_json())
-        return
-
-    _finish(request.config, built)
 
 
-def _finish(config: pytest.Config, built: Report) -> None:
-    """Write the artifact and print the table."""
-    path = built.write(Path(str(config.getoption("--report"))))
-    console.print()
-    console.print(scores_table(built.scores(), isolated=built.isolated))
-    console.print(f"report: [cyan]{path}[/]")
-
-
-def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """On the controller, merge whatever the workers wrote."""
-    del exitstatus
-    config = session.config
-    if _worker_id(config):
-        return
+def _collect(config: pytest.Config) -> Report | None:
+    """This session's report: the workers' shards, or what ran in process."""
     shards = _shard_dir(config)
     files = sorted(shards.glob("*.json")) if shards.is_dir() else []
     if not files:
-        return
+        return config.stash.get(REPORT, None)
     merged = Report.merge(files)
-    _finish(config, merged)
     for file in files:
         file.unlink()
     shards.rmdir()
+    return merged
+
+
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
+    """Write the artifact and render the tables.
+
+    Printing from the fixture's teardown put it inside pytest's capture,
+    which discards it when the run is green: scores appeared only on
+    failure. This hook runs with capture suspended.
+    """
+    config = terminalreporter.config
+    if _worker_id(config):
+        return
+    built = _collect(config)
+    if built is None or not built.runs:
+        return
+    path = built.write(Path(str(config.getoption("--report"))))
+    console.print()
+    console.print(scores_table(built.scores(), isolated=built.isolated))
+    if failures := built.failures():
+        console.print(failures_table(failures))
+    console.print(f"report: [cyan]{path}[/]")
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -157,20 +167,39 @@ def conformance(
     )
     results = run_all(convo, case, target.harness, skill.name)
 
+    failed = any(r.status is Status.FAIL for r in results)
+    if failed:
+        box.keep = True
+
     report.runs.append(
         RunRecord(
             target=target.label,
             model=target.model,
             case=case.name,
             run=run_index,
+            prompt=case.prompt,
             results=results,
             turns=len(convo.turns),
             asked=convo.given,
             workspace=str(box.path),
+            workspace_kept=box.keep,
+            duration_s=round(sum(t.duration_s for t in convo.turns), 2),
+            detail=[
+                TurnRecord(
+                    index=i,
+                    argv=t.argv,
+                    exit_code=t.exit_code,
+                    duration_s=t.duration_s,
+                    tool_calls=[{"name": c.name, "args": c.args} for c in t.tool_calls],
+                    said=t.texts,
+                    denied=t.denied,
+                    stream=t.stream if box.keep else "",
+                    stderr_tail=t.stderr_tail,
+                )
+                for i, t in enumerate(convo.turns)
+            ],
         )
     )
 
-    if any(r.status is Status.FAIL for r in results):
-        box.keep = True
     request.addfinalizer(box.cleanup)
     return results

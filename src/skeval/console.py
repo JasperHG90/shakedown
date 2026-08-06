@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from rich.table import Table
@@ -56,6 +56,22 @@ def scores_table(scores: dict[str, dict[str, Score]], *, isolated: bool) -> Tabl
     if not isolated:
         table.caption = "sandbox not isolated: numbers include whatever else the harness could see"
         table.caption_style = "yellow"
+    return table
+
+
+def failures_table(failures: list[dict[str, Any]]) -> Table:
+    """What failed, why, and where the evidence is."""
+    table = Table(title="failures", title_style="bold red", header_style="bold")
+    for column in ("case", "run", "failed", "reason", "workspace"):
+        table.add_column(column, overflow="fold")
+    for failure in failures:
+        table.add_row(
+            str(failure["case"]),
+            str(failure["run"]),
+            Text(", ".join(failure["failed"]), style="red"),
+            "; ".join(failure["reasons"]),
+            Text(failure["workspace"] or "(cleaned)", style="dim"),
+        )
     return table
 
 

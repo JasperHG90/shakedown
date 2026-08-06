@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -417,7 +418,7 @@ def test_harness_requires_start_and_skills() -> None:
 FAKE = REPO / "tests" / "fake"
 
 
-def _e2e(tmp_path: Path, *extra: str) -> tuple[int, dict[str, Any]]:
+def _e2e(tmp_path: Path, *extra: str, skill: Path = FAKE / "skill") -> tuple[int, dict[str, Any]]:
     """Run the whole pipeline against the fake harness. No network, no cost."""
     import os
     import subprocess
@@ -436,7 +437,7 @@ def _e2e(tmp_path: Path, *extra: str) -> tuple[int, dict[str, Any]]:
             "--skeval-config",
             str(FAKE / "skeval.toml"),
             "--skill",
-            str(FAKE / "skill"),
+            str(skill),
             "--repeat",
             "2",
             "--report",
@@ -450,6 +451,7 @@ def _e2e(tmp_path: Path, *extra: str) -> tuple[int, dict[str, Any]]:
         text=True,
     )
     assert report.is_file(), done.stdout + done.stderr
+    (tmp_path / "stdout.txt").write_text(done.stdout)
     invocations = len(counter.read_text().splitlines()) if counter.exists() else 0
     return invocations, json.loads(report.read_text())
 
@@ -495,6 +497,67 @@ def test_end_to_end_scores_every_dimension(tmp_path: Path) -> None:
     # Four cases withhold something across two repeats; two withhold nothing.
     assert scores["inputs_resolved"]["scored"] == 4
     assert scores["inputs_resolved"]["unsupported"] == 2
+
+
+def test_a_green_run_still_prints_its_scores(tmp_path: Path) -> None:
+    """Rendering from the fixture teardown put it inside pytest's capture,
+    so a passing run printed nothing and only failures showed a table."""
+    _e2e(tmp_path)
+    printed = (tmp_path / "stdout.txt").read_text()
+    assert "skeval" in printed
+    assert "tool_used" in printed, "the scores table must survive a green run"
+    assert "report:" in printed
+
+
+def test_the_report_carries_enough_to_debug_a_run(tmp_path: Path) -> None:
+    """Scores say a run failed. Detail says what the harness actually did."""
+    _, report = _e2e(tmp_path)
+    run = next(r for r in report["runs"] if r["case"] == "missing-owner")
+
+    assert run["prompt"]
+    assert run["duration_s"] > 0
+    assert len(run["detail"]) == run["turns"]
+
+    first = run["detail"][0]
+    assert first["argv"][0].endswith("agent"), "the exact command is recoverable"
+    assert first["exit_code"] == 0
+    assert any(c["name"] == "Skill" for c in first["tool_calls"])
+    assert report["summary"]["runs"] == len(report["runs"])
+    assert report["summary"]["failures"] == []
+
+
+def test_a_failing_run_names_what_failed_and_keeps_the_evidence(tmp_path: Path) -> None:
+    """A red run is only useful if it says which check, why, and where."""
+    skill = tmp_path / "skill"
+    shutil.copytree(FAKE / "skill", skill)
+    (skill / "cases.toml").write_text(
+        "[[case]]\n"
+        'name = "doomed"\n'
+        'prompt = "Write a plan. owner: platform-team. title: billing."\n'
+        'tool = "notatool"\n'
+        "\n[[case.artifacts]]\n"
+        'path = "OUT.md"\n'
+        'contains = ["never written"]\n'
+    )
+    _, report = _e2e(tmp_path / "out", skill=skill)
+
+    summary = report["summary"]
+    assert (summary["runs"], summary["ok"], summary["failed"]) == (2, 0, 2)
+
+    failure = summary["failures"][0]
+    assert failure["case"] == "doomed"
+    assert failure["failed"] == ["tool_used", "artifact_created"]
+    assert "notatool" in failure["reasons"][0]
+    assert "never written" in failure["reasons"][1]
+
+    # The workspace survives a failure, and the stream it names is on disk.
+    assert Path(failure["workspace"]).is_dir()
+    assert all(Path(s).is_file() for s in failure["streams"])
+
+    run = report["runs"][0]
+    assert run["ok"] is False
+    assert run["workspace_kept"] is True
+    assert run["detail"][0]["tool_calls"], "the calls it did make are recorded"
 
 
 def test_end_to_end_parallel_matches_serial(tmp_path: Path) -> None:

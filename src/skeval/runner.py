@@ -6,6 +6,7 @@ bidirectional stream, so every turn is a plain process.
 
 from __future__ import annotations
 
+import time
 import uuid
 from pathlib import Path
 
@@ -64,7 +65,9 @@ class Conversation(BaseModel):
 def _once(
     box: Sandbox, harness: Harness, argv: list[str], stem: str, timeout_s: float
 ) -> tuple[Turn, bool]:
+    started = time.monotonic()
     code, stdout, stderr = box.exec(argv, harness.environment(), timeout_s)
+    elapsed = time.monotonic() - started
 
     out_path = box.path / f".skeval-{stem}.jsonl"
     out_path.write_text(stdout)
@@ -76,6 +79,10 @@ def _once(
 
     turn = parse(read(out_path), harness.events)
     turn.exit_code = code
+    turn.argv = argv
+    turn.duration_s = round(elapsed, 2)
+    turn.stream = str(out_path)
+    turn.stderr_tail = stderr.strip()[-500:]
     return turn, code == -1
 
 

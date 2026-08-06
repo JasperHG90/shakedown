@@ -34,6 +34,10 @@ class Turn(BaseModel):
     skills_offered: list[str] = Field(default_factory=list)
     denied: list[str] = Field(default_factory=list)
     exit_code: int = 0
+    argv: list[str] = Field(default_factory=list)
+    duration_s: float = 0.0
+    stream: str = ""
+    stderr_tail: str = ""
 
     def said(self) -> str:
         """Everything the agent said."""
