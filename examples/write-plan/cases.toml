@@ -7,8 +7,11 @@ tool     = "planctl"
 [[case]]
 name     = "missing-owner"
 prompt   = "Write a project plan titled Billing migration."
-artifact = "PLAN.md"
 tool     = "planctl"
+
+  [[case.artifacts]]
+  path     = "PLAN.md"
+  contains = ["Billing migration"]
 
   [[case.answers]]
   match = "(?i)\\bowner\\b|who owns|who is responsible"

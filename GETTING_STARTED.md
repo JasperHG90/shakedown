@@ -24,9 +24,19 @@ no registration. Just the directory.
 
 ## 3. Write `cases.toml`
 
-A case is a prompt and the artifact it should produce. `tool` is optional:
-name it when the skill must go through a specific CLI, omit it when the
-skill writes the artifact itself.
+A case is a prompt and what must be true afterwards. Three things get
+checked, and each is optional: a case declares only what applies to it.
+
+| check | declared by | omitted means |
+|---|---|---|
+| tool use | `tool` | `unsupported` |
+| asking for input | `[[case.answers]]` | `unsupported` |
+| artifacts exist, with the right content | `artifact` / `[[case.artifacts]]` | `unsupported` |
+
+`skill_fired` always applies: it is the precondition, not a dimension.
+
+`tool` names a CLI the skill must go through. Omit it for a skill that
+writes the artifact itself.
 
 ```toml
 [[case]]
@@ -58,7 +68,32 @@ reply = "platform-team"
 `PLAN.md`: that string is supplied only in answer to a question, so it
 cannot appear unless the harness asked, accepted, and acted.
 
-Add an `[[case.answers]]` block per fact you withhold. One unused match is
+### Several artifacts, and what must be in them
+
+`artifact = "X"` is shorthand. The long form takes a list, and each entry
+may require content:
+
+```toml
+[[case]]
+name   = "scaffold"
+prompt = "Scaffold the billing service."
+tool   = "scaffoldctl"
+
+  [[case.artifacts]]
+  path     = "src/billing/__init__.py"
+
+  [[case.artifacts]]
+  path     = "README.md"
+  contains = ["billing", "platform-team"]
+```
+
+Every declared artifact must exist, be non-empty, and contain each of its
+`contains` strings. A missing file or a missing string is named in the
+failure.
+
+### Asking for input
+
+Add a `[[case.answers]]` block per fact you withhold. One unused match is
 supplied per turn, so a case withholding two things runs three turns and
 both replies must reach the artifact:
 

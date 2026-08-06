@@ -51,8 +51,12 @@ def convo(
 
 
 def case(**kw: Any) -> Case:
-    """A case with defaults."""
-    return Case(**{"name": "c", "prompt": "p", "artifact": "PLAN.md", "tool": "planctl", **kw})
+    """A case with defaults. Pass artifact=None to drop the default file."""
+    fields: dict[str, Any] = {"name": "c", "prompt": "p", "artifact": "PLAN.md", "tool": "planctl"}
+    fields.update(kw)
+    if fields.get("artifact") is None:
+        fields.pop("artifact")
+    return Case(**fields)
 
 
 # --- events ---------------------------------------------------------------
@@ -225,6 +229,48 @@ def test_artifact_must_exist_and_be_non_empty(tmp_path: Path) -> None:
     assert artifact_created(c, case()).ok
 
 
+def test_every_expected_artifact_must_appear(tmp_path: Path) -> None:
+    """A case may require several files; a missing one is named."""
+    spec = case(artifacts=[{"path": "A.md"}, {"path": "B.md"}], artifact=None)
+    c = convo(tmp_path, [], [])
+    (tmp_path / "A.md").write_text("a")
+    result = artifact_created(c, spec)
+    assert not result.ok and "B.md was not created" in result.reason
+    (tmp_path / "B.md").write_text("b")
+    assert artifact_created(c, spec).ok
+
+
+def test_an_artifact_may_require_content(tmp_path: Path) -> None:
+    """Existing is not enough when the case says what must be in it."""
+    spec = case(
+        artifacts=[{"path": "A.md", "contains": ["billing", "platform-team"]}], artifact=None
+    )
+    c = convo(tmp_path, [], [])
+    (tmp_path / "A.md").write_text("# billing\n")
+    result = artifact_created(c, spec)
+    assert not result.ok and "lacks platform-team" in result.reason
+    (tmp_path / "A.md").write_text("# billing\nOwner: platform-team\n")
+    assert artifact_created(c, spec).ok
+
+
+def test_a_case_expecting_no_artifact_is_unsupported(tmp_path: Path) -> None:
+    """Some skills produce no file at all."""
+    spec = case(artifacts=[], artifact=None)
+    assert artifact_created(convo(tmp_path, [], []), spec).status is Status.UNSUPPORTED
+
+
+def test_replies_may_land_in_any_expected_artifact(tmp_path: Path) -> None:
+    """Which file carries the answer is the skill's business, not ours."""
+    spec = case(
+        artifacts=[{"path": "A.md"}, {"path": "B.md"}],
+        artifact=None,
+        answers=[Answer(match=re.compile("owner"), reply="platform-team")],
+    )
+    (tmp_path / "A.md").write_text("nothing here")
+    (tmp_path / "B.md").write_text("Owner: platform-team")
+    assert inputs_resolved(convo(tmp_path, [], ["platform-team"]), spec, harness()).ok
+
+
 def test_inputs_resolved_needs_the_reply_in_the_artifact(tmp_path: Path) -> None:
     """The artifact is the proof, not the transcript."""
     spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
@@ -233,6 +279,18 @@ def test_inputs_resolved_needs_the_reply_in_the_artifact(tmp_path: Path) -> None
     assert not inputs_resolved(c, spec, harness()).ok
     (tmp_path / "PLAN.md").write_text("Owner: platform-team")
     assert inputs_resolved(c, spec, harness()).ok
+
+
+def test_asking_without_an_artifact_cannot_prove_use(tmp_path: Path) -> None:
+    """It asked and was answered, but nothing shows the answer was used."""
+    spec = case(
+        artifacts=[],
+        artifact=None,
+        answers=[Answer(match=re.compile("owner"), reply="platform-team")],
+    )
+    result = inputs_resolved(convo(tmp_path, [], ["platform-team"]), spec, harness())
+    assert result.status is Status.UNSUPPORTED
+    assert "nothing to prove" in result.reason
 
 
 def test_never_asking_fails(tmp_path: Path) -> None:
@@ -392,7 +450,8 @@ def _e2e(tmp_path: Path, *extra: str) -> tuple[int, dict[str, Any]]:
         text=True,
     )
     assert report.is_file(), done.stdout + done.stderr
-    return int(counter.read_text()), json.loads(report.read_text())
+    invocations = len(counter.read_text().splitlines()) if counter.exists() else 0
+    return invocations, json.loads(report.read_text())
 
 
 def test_end_to_end_runs_each_scenario_once(tmp_path: Path) -> None:
@@ -419,7 +478,8 @@ def test_a_case_may_ask_for_several_things(tmp_path: Path) -> None:
     assert asked["specified"] == []
 
     resolved = [
-        r for r in report["runs"]
+        r
+        for r in report["runs"]
         if r["case"] == "missing-both"
         for x in r["results"]
         if x["name"] == "inputs_resolved" and x["status"] == "pass"

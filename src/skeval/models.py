@@ -7,6 +7,7 @@ import re
 import tomllib
 from functools import lru_cache, partial
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -72,17 +73,35 @@ class Answer(BaseModel):
     reply: str
 
 
+class Artifact(BaseModel):
+    """A file the skill must produce, and optionally what must be in it."""
+
+    path: str
+    contains: list[str] = Field(default_factory=list)
+
+
 class Case(BaseModel):
     """One measured scenario."""
 
     name: str
     prompt: str
-    artifact: str
+    artifacts: list[Artifact] = Field(default_factory=list)
     #: The CLI the skill must go through, if it has one. Omit for a skill
     #: that writes the artifact itself; the tool check then reports
     #: unsupported rather than failing.
     tool: str | None = None
     answers: list[Answer] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_or_many(cls, data: Any) -> Any:
+        """Accept `artifact = "X"` as shorthand for a single artifact."""
+        if isinstance(data, dict) and "artifact" in data:
+            data = dict(data)
+            single = data.pop("artifact")
+            entry = {"path": single} if isinstance(single, str) else single
+            data.setdefault("artifacts", []).insert(0, entry)
+        return data
 
 
 class MatrixEntry(BaseModel):

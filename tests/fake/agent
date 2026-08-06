@@ -11,8 +11,10 @@ args = sys.argv[1:]
 text = args[args.index("-p") + 1] if "-p" in args else ""
 resuming = "--resume" in args
 
+# Append, never read-modify-write: parallel workers race and lose counts.
 counter = Path(os.environ.get("FAKE_COUNTER", "/tmp/fake-agent-count"))
-counter.write_text(str(int(counter.read_text() or 0) + 1) if counter.exists() else "1")
+with counter.open("a") as fh:
+    fh.write("x\n")
 
 state_path = Path(".fake-state.json")
 state = json.loads(state_path.read_text()) if resuming and state_path.exists() else {}

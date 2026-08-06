@@ -17,8 +17,11 @@ tool     = "faketool"
 [[case]]
 name     = "missing-both"
 prompt   = "Write a plan."
-artifact = "OUT.md"
 tool     = "faketool"
+
+  [[case.artifacts]]
+  path     = "OUT.md"
+  contains = ["billing", "platform-team"]
 
   [[case.answers]]
   match = "(?i)owner"

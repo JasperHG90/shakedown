@@ -75,19 +75,31 @@ def tool_used(convo: Conversation, needle: str | None) -> Result:
 
 
 def artifact_created(convo: Conversation, case: Case) -> Result:
-    """Did the expected file appear, non-empty?"""
-    path = convo.workspace / case.artifact
-    if not path.is_file():
+    """Did every expected file appear, non-empty, carrying what it must?"""
+    if not case.artifacts:
         return Result(
             name="artifact_created",
-            status=Status.FAIL,
-            reason=f"no {case.artifact} in the workspace",
+            status=Status.UNSUPPORTED,
+            reason="this case expects no artifact",
         )
-    if not path.read_text().strip():
-        return Result(
-            name="artifact_created", status=Status.FAIL, reason=f"{case.artifact} is empty"
-        )
-    return Result(name="artifact_created", status=Status.PASS, reason=f"{case.artifact} written")
+
+    problems = []
+    for artifact in case.artifacts:
+        path = convo.workspace / artifact.path
+        if not path.is_file():
+            problems.append(f"{artifact.path} was not created")
+            continue
+        text = path.read_text()
+        if not text.strip():
+            problems.append(f"{artifact.path} is empty")
+            continue
+        if missing := [c for c in artifact.contains if c not in text]:
+            problems.append(f"{artifact.path} lacks {', '.join(missing)}")
+
+    if problems:
+        return Result(name="artifact_created", status=Status.FAIL, reason="; ".join(problems))
+    written = ", ".join(a.path for a in case.artifacts)
+    return Result(name="artifact_created", status=Status.PASS, reason=f"{written} written")
 
 
 def inputs_resolved(convo: Conversation, case: Case, harness: Harness) -> Result:
@@ -112,16 +124,27 @@ def inputs_resolved(convo: Conversation, case: Case, harness: Harness) -> Result
             status=Status.FAIL,
             reason="the harness never asked, so no reply was supplied",
         )
-    path = convo.workspace / case.artifact
-    text = path.read_text() if path.is_file() else ""
+    if not case.artifacts:
+        return Result(
+            name="inputs_resolved",
+            status=Status.UNSUPPORTED,
+            reason="the harness asked and was answered, but with no artifact "
+            "there is nothing to prove the answer was used",
+        )
+
+    text = "\n".join(
+        (convo.workspace / a.path).read_text()
+        for a in case.artifacts
+        if (convo.workspace / a.path).is_file()
+    )
     if missing := [r for r in convo.given if r not in text]:
         return Result(
             name="inputs_resolved",
             status=Status.FAIL,
-            reason=f"replies absent from {case.artifact}: {', '.join(missing)}",
+            reason=f"replies absent from the artifacts: {', '.join(missing)}",
         )
     return Result(
-        name="inputs_resolved", status=Status.PASS, reason=f"every reply appears in {case.artifact}"
+        name="inputs_resolved", status=Status.PASS, reason="every reply appears in the artifacts"
     )
 
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from skeval.models import Answer, Case, Harness, Skill
+from skeval.models import Answer, Artifact, Case, Harness, Skill
 from skeval.runner import converse
 from skeval.sandbox import create
 
@@ -18,7 +18,7 @@ MARKER = "skeval-ok"
 CANARY_CASE = Case(
     name="canary",
     prompt="Run the canary check.",
-    artifact="canary.txt",
+    artifacts=[Artifact(path="canary.txt")],
     tool=MARKER,
     answers=[Answer(match=re.compile("(?i)which|what.*name|file name"), reply="canary.txt")],
 )
