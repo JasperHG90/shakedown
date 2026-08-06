@@ -595,6 +595,16 @@ def test_a_green_run_still_prints_its_scores(tmp_path: Path) -> None:
     assert "report:" in printed
 
 
+def test_a_non_interactive_run_prints_no_spinner(tmp_path: Path) -> None:
+    """CI has no terminal to animate, and a log full of frames helps nobody."""
+    _e2e(tmp_path)
+    printed = (tmp_path / "stdout.txt").read_text()
+    assert not set(printed) & set("\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f")
+    # The status character pytest writes per test survives when no spinner
+    # is competing for the line.
+    assert "100%" in printed
+
+
 def test_the_report_carries_enough_to_debug_a_run(tmp_path: Path) -> None:
     """Scores say a run failed. Detail says what the harness actually did."""
     _, report = _e2e(tmp_path)
