@@ -1,0 +1,47 @@
+[project]
+name = "skillconf"
+version = "0.1.0"
+description = "Harness conformance testing for agent skills."
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+
+[project.scripts]
+skillconf = "skillconf.cli:main"
+
+[project.entry-points.pytest11]
+skillconf = "skillconf.plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/skillconf"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "D1"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+files = ["src/skillconf", "tests"]
+strict = true
+
+[tool.pytest.ini_options]
+addopts = "-q -m 'not live'"
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "live: spends real money against a real harness CLI; off by default, run with -m live",
+]
