@@ -15,8 +15,23 @@
 
 ## Why this exists
 
-You wrote a skill and it works. Then the harness ships a new version, or a
-teammate runs it on a different one, and it quietly stops working — the CLI
+Skills have their own version of "works on my machine". You write one with
+Claude Code in mind, iterate against Claude until it behaves, and then ship
+it to Gemini users as well. Does it still do the thing you wrote it to do?
+
+You cannot read that off the skill. The model is probabilistic and so is the
+harness around it, and the harness decides what the model even sees: which
+tools it may call, whether it can stop and ask a question, what it does when
+an instruction is inconvenient. From the outside that is a black box, and
+the only honest way in is to run it and look at what came out.
+
+It matters because a skill is usually an interface. "Scaffold this
+repository." "Ask me for the inputs you need." Those are promises to
+whoever installs it, and shipping to a second harness means making the same
+promise there. This tells you which of them you can actually keep.
+
+The failure is quiet, which is the other half of the problem. The harness
+ships a new version, or a teammate runs it on a different one, and the CLI
 never gets called, the file never gets written, the question never gets
 asked. Nothing crashes. You just get a worse answer.
 
@@ -48,22 +63,24 @@ works in another, and whether it keeps working.
 
 ## What it checks
 
-Every case declares only the checks that apply to it. Four things get
-measured:
+At most three things, and a case declares only the ones that apply to it. A
+skill that writes its own file is not marked down for calling no CLI.
 
-- **Did the skill fire?** A precondition, not a check. If it never
-  activated, the run measured the base model, so the other three report
-  `NOT_TRIGGERED` instead of failing. A trigger problem folded into a
-  conformance number contaminates both.
-- **Was the tool used?** The deterministic CLI was invoked, **and not
-  denied**. A tool call in a transcript is a request, not proof it ran.
-- **Was the artifact created?** The expected file exists, is non-empty, and
-  contains what the case said it should.
-- **Were withheld inputs asked for and resolved?** The prompt leaves out
+- **Did the harness use the tool we expected?** The deterministic CLI was
+  invoked, **and not denied**. A tool call in a transcript is a request, not
+  proof it ran.
+- **Was the user asked for the inputs we withheld?** The prompt leaves out
   something the skill needs. The artifact is the proof: a reply is only ever
   supplied in answer to a question, so a reply showing up in the artifact
   means the harness asked, accepted, and acted. No question parsing, no
   ordering check.
+- **Was the artifact created, and does it contain what we expect?** The file
+  exists, is non-empty, and carries the values the case named.
+
+Before any of them, one precondition: **did the skill fire at all?** If it
+never activated, the run measured the base model, so all three report
+`NOT_TRIGGERED` rather than failing. A trigger problem folded into a
+conformance number contaminates both.
 
 Two more things it is careful about:
 
@@ -74,6 +91,19 @@ Two more things it is careful about:
 - **A harness is never marked down for a capability it lacks.** One that
   cannot resume a session gets `unsupported` on `inputs_resolved`, not a
   failure.
+
+## What it is not
+
+A general purpose evaluation suite, and it is not trying to become one.
+There is no answer-quality score, no model grading another model, no
+dataset. It measures whether a few observable things happened and writes
+them to a JSON file. Run it locally, run it in CI, and use the report
+however you like.
+
+The parts are ones you already know how to drive: pytest is the runner, so
+`-k`, `-x` and `-n` work as they always do, and testcontainers does the
+isolation. A harness is a block of TOML rather than a plugin to write, and
+the container it runs in is yours.
 
 ## Quick start
 
