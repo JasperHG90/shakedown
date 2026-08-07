@@ -7,7 +7,7 @@ Use this one to see what a real `cases.toml` looks like. Use
 [`write-plan`](../write-plan) first if you only want the shape.
 
 ```bash
-uv run skeval run examples/scaffold-service -j 3
+uv run shakedown run examples/scaffold-service -j 3
 ```
 
 ## The skill
@@ -38,7 +38,7 @@ never marked down for a check that does not apply to it.
 
 ## What a run of this looks like
 
-Against the three targets in the repo's `skeval.toml`, one run each:
+Against the three targets in the repo's `shakedown.toml`, one run each:
 
 | target | skill_fired | tool_used | artifact_created | inputs_resolved |
 |---|---|---|---|---|
@@ -60,7 +60,7 @@ These numbers move between runs — that is the point of measuring them.
 Re-run with a higher `--repeat` to see the spread:
 
 ```bash
-uv run skeval run examples/scaffold-service --repeat 5 -j 9
+uv run shakedown run examples/scaffold-service --repeat 5 -j 9
 ```
 
 ## Files

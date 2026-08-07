@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
-from skeval.console import checks_table, console
-from skeval.models import ConfigError, Harness, load_config
-from skeval.report import REPORT_NAME
+from shakedown.console import checks_table, console
+from shakedown.models import ConfigError, Harness, load_config
+from shakedown.report import REPORT_NAME
 
 if TYPE_CHECKING:
-    from skeval.doctor import Diagnosis
+    from shakedown.doctor import Diagnosis
 
 # No no_args_is_help: click would print the help and exit before the callback
 # runs, and the banner would never appear.
@@ -27,8 +27,8 @@ def root(
     ctx: typer.Context,
     version: Annotated[bool, typer.Option("--version", help="print the version and exit")] = False,
 ) -> None:
-    """Harness conformance testing for agent skills."""
-    from skeval import banner
+    """Smoke-test agent skills across harnesses and models."""
+    from shakedown import banner
 
     if version:
         print(banner.version())
@@ -56,7 +56,7 @@ def run(
     keep: Annotated[bool, typer.Option("--keep", help="keep every workspace")] = False,
     pytest_args: Annotated[list[str] | None, typer.Argument(help="passed to pytest")] = None,
 ) -> None:
-    """Run the conformance matrix. Spends money."""
+    """Run the matrix. Spends money."""
     argv = [
         sys.executable,
         "-m",
@@ -72,7 +72,7 @@ def run(
         str(report),
     ]
     if config:
-        argv += ["--skeval-config", str(config)]
+        argv += ["--shakedown-config", str(config)]
     if harness:
         argv += ["--harness", harness]
     if case:
@@ -83,7 +83,7 @@ def run(
         argv += ["-n", str(parallel), "--dist", "loadgroup"]
     elif console.is_terminal:
         # Capture would swallow the live progress. Nothing in a conformance
-        # run prints except skeval itself, so there is nothing to capture.
+        # run prints except shakedown itself, so there is nothing to capture.
         # Parallel runs opt out: several workers would fight over one line.
         argv += ["-s"]
     if keep:
@@ -94,12 +94,12 @@ def run(
 @app.command()
 def init(
     skill: Annotated[Path, typer.Argument(help="where to scaffold the skill")] = Path("my-skill"),
-    config: Annotated[Path, typer.Option("--config", help="where to write skeval.toml")] = Path(
-        "skeval.toml"
+    config: Annotated[Path, typer.Option("--config", help="where to write shakedown.toml")] = Path(
+        "shakedown.toml"
     ),
 ) -> None:
     """Scaffold a config and a skill that already passes."""
-    from skeval.scaffold import scaffold
+    from shakedown.scaffold import scaffold
 
     try:
         written = scaffold(skill, config)
@@ -109,7 +109,7 @@ def init(
 
     for path in written:
         console.print(f"  [green]+[/] {path}")
-    console.print(f"\nnext: [cyan]skeval doctor[/], then [cyan]skeval run {skill}[/]")
+    console.print(f"\nnext: [cyan]shakedown doctor[/], then [cyan]shakedown run {skill}[/]")
 
 
 def _diagnose(name: str, harness: Harness, *, model: str, sandbox: str) -> Diagnosis:
@@ -118,7 +118,7 @@ def _diagnose(name: str, harness: Harness, *, model: str, sandbox: str) -> Diagn
     A canary turn is a whole model round trip, so without this the command
     looks hung for the better part of a minute.
     """
-    from skeval.doctor import diagnose
+    from shakedown.doctor import diagnose
 
     label = f"[cyan]{name}[/]"
     with console.status(f"{label}: starting", spinner="dots") as spinner:
@@ -132,12 +132,12 @@ def _diagnose(name: str, harness: Harness, *, model: str, sandbox: str) -> Diagn
 
 @app.command()
 def summary(
-    report: Annotated[Path, typer.Argument(help="a report written by `skeval run`")] = Path(
+    report: Annotated[Path, typer.Argument(help="a report written by `shakedown run`")] = Path(
         REPORT_NAME
     ),
 ) -> None:
     """Render a report as markdown, for a PR comment or a job summary."""
-    from skeval.report import Report
+    from shakedown.report import Report
 
     if not report.is_file():
         console.print(f"[red]no report at {report}[/]")

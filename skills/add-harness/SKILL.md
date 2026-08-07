@@ -2,17 +2,17 @@
 name: add-harness
 description: >-
   Add a new agent harness (opencode, Gemini CLI, Codex, Amp, a local
-  Ollama-backed runner, or any CLI that loads skills) to a skeval config so
-  its skill conformance can be measured, and diagnose a harness that
-  `skeval doctor` reports as not qualifying. Use this whenever someone wants
-  skeval to run against a harness it does not yet support, asks why a
-  harness fails doctor, asks how to point an existing harness at a different
-  model or provider, or is editing the `[harness.*]` block of a skeval.toml.
-  Use it even when they only name the tool ("can this test opencode?")
-  without mentioning config or TOML.
+  Ollama-backed runner, or any CLI that loads skills) to a shakedown config
+  so its skill conformance can be measured, and diagnose a harness that
+  `shakedown doctor` reports as not qualifying. Use this whenever someone
+  wants shakedown to run against a harness it does not yet support, asks why
+  a harness fails doctor, asks how to point an existing harness at a
+  different model or provider, or is editing the `[harness.*]` block of a
+  shakedown.toml. Use it even when they only name the tool ("can this test
+  opencode?") without mentioning config or TOML.
 ---
 
-# Adding a harness to skeval
+# Adding a harness to shakedown
 
 A harness is described entirely by config. No code is written to support
 one, so this task is: find the flags, write the block, run `doctor`, and fix
@@ -31,7 +31,7 @@ A harness qualifies if it can do these. Four are required.
 |---|---|---|---|
 | 1 | run headless from a prompt and exit on its own | yes | unusable |
 | 2 | load a skill from a directory you control | yes | unusable |
-| 3 | emit machine-readable output with tool calls and text | yes | unusable |
+| 3 | emit machine-readable output with tool calls and text | yes | unusable, unless it can export the transcript afterwards (Step 3) |
 | 4 | continue a session | no | `inputs_resolved` reports `unsupported` |
 | 5 | run without a TTY | yes | unusable |
 | 6 | what else the model could see | reported only | nothing |
@@ -41,7 +41,7 @@ for, in the usual naming:
 
 - A non-interactive or print flag (`-p`, `--prompt`, `run`).
 - An output format flag naming JSON or stream-json. Newline-delimited JSON
-  is what skeval parses.
+  is what shakedown parses.
 - A session identifier flag, and a resume flag that takes it.
 - A model flag, so the same harness can be measured against several models.
 - A permission or approval flag, discussed in Step 4.
@@ -108,13 +108,13 @@ declaring both is refused. Use `image` when you already build and push one,
 and `dockerfile` when you would rather keep the environment in the repo.
 Either way it holds the harness plus whatever the skills need at runtime,
 because a skill whose `bin/` cannot execute fails checks for reasons that
-have nothing to do with the skill. See `examples/docker/` for both
-harnesses.
+have nothing to do with the skill. See `examples/docker/` for one per
+shipped harness.
 
-The path is relative to `skeval.toml`, and it is built once per run rather
-than per scenario.
+The path is relative to `shakedown.toml`, and it is built once per run
+rather than per scenario.
 
-## Step 3: Tell skeval where the tool calls are
+## Step 3: Tell shakedown where the tool calls are
 
 Harnesses put tool calls at different depths. This is the one shape
 question, and it is config rather than code.
@@ -144,8 +144,35 @@ text_key      = "text"
 text_marker   = "text"
 ```
 
+Every one of those keys may itself be a dotted path, which covers a flat
+record that still buries what you need. opencode's tool call is top-level
+but carries its name and arguments under a `part` object, so it reads
+`name_key = "part.tool"` and `args_key = "part.state.input"`.
+
 A harness matching neither shape fails at `doctor` step 3, loudly, instead
 of silently scoring zero everywhere.
+
+### When the harness prints prose and nothing else
+
+Some agents stream no events at all. Hermes prints only its final answer,
+so there is nothing to parse while it works. Before writing it off, check
+whether it can hand over the transcript afterwards: `hermes sessions
+export --format trace` writes Claude Code JSONL, and a start command may
+be two commands.
+
+```toml
+start = [
+  "sh", "-c",
+  "hermes -z \"$1\" -m \"$2\" >&2 && hermes sessions export --format trace -",
+  "hermes", "{prompt}", "{model}",
+]
+```
+
+The prompt stays a positional argument (`$1`) rather than being pasted
+into the script, so it is still exactly one argument and still cannot
+become a flag. Send the harness's own prose to stderr rather than
+`/dev/null`: a run that fails for its own reasons then says why, instead
+of scoring as a skill that never fired.
 
 ## Step 4: Let the harness run the tool
 
@@ -153,7 +180,7 @@ Most harnesses refuse tool calls by default, and a refusal still appears in
 the transcript as a call. A config that omits the permission flag therefore
 produces runs where the CLI was requested, denied, and never executed.
 
-skeval reads the harness's denial records and fails `tool_used` with "was
+shakedown reads the harness's denial records and fails `tool_used` with "was
 requested but denied", so this shows up as a diagnosis rather than a silent
 wrong number. Fix it in `start` and `resume` by allowing the tools the skill
 needs.
@@ -165,15 +192,15 @@ so a skill that shells out to its CLI is denied under it.
 ## Step 5: Run doctor until it qualifies
 
 ```bash
-skeval doctor --harness my-harness
+shakedown doctor --harness my-harness
 ```
 
 `doctor` runs a canary skill that asks one question, then runs
-`echo skeval-ok`. Seeing that shell call is only possible if the harness ran
-headless, discovered the skill, surfaced it to the model, followed it, and
-emitted parseable output, so one cheap task settles prerequisites 1, 2, 3
-and 5 at once. The question is there to force a second turn, which settles
-4.
+`echo shakedown-ok`. Seeing that shell call is only possible if the harness
+ran headless, discovered the skill, surfaced it to the model, followed it,
+and emitted parseable output, so one cheap task settles prerequisites 1, 2,
+3 and 5 at once. The question is there to force a second turn, which
+settles 4.
 
 ```
              my-harness

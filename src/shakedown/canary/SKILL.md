@@ -1,9 +1,9 @@
 ---
-name: skeval-canary
-description: Run the skeval conformance check. Use whenever someone asks to run the canary check, verify the harness, or confirm skeval is wired up correctly.
+name: shakedown-canary
+description: Run the shakedown canary check. Use whenever someone asks to run the canary check, verify the harness, or confirm shakedown is wired up correctly.
 ---
 
-# skeval-canary
+# shakedown-canary
 
 This skill exists so a test can confirm three things about a harness: that
 it discovered the skill, that it surfaced it to the model, and that it can
@@ -19,10 +19,10 @@ they can reply. Do not guess a name and do not proceed without one.
 Run exactly this shell command:
 
 ```
-echo skeval-ok
+echo shakedown-ok
 ```
 
 Then write the filename they gave you, in the current directory,
-containing the single word `skeval-ok`.
+containing the single word `shakedown-ok`.
 
 Do not explain or summarize. The shell call is the evidence.

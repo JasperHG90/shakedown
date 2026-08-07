@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from skeval.models import Events
+from shakedown.models import Events
 
 
 class StreamError(Exception):
@@ -79,6 +79,21 @@ def _descend(record: dict[str, Any], path: str) -> list[dict[str, Any]]:
     return [b for b in node if isinstance(b, dict)] if isinstance(node, list) else []
 
 
+def _dig(block: dict[str, Any], path: str) -> Any:
+    """A key, or a dotted path to one nested deeper in the block.
+
+    opencode puts the tool name and its arguments under a ``part`` object
+    rather than beside the discriminator, so a flat lookup would find
+    neither. A plain key has no dot in it and takes the first iteration.
+    """
+    node: Any = block
+    for part in path.split("."):
+        if not isinstance(node, dict):
+            return None
+        node = node.get(part)
+    return node
+
+
 def parse(records: list[dict[str, Any]], spec: Events) -> Turn:
     """Raw records to the neutral shape."""
     turn = Turn()
@@ -98,20 +113,21 @@ def parse(records: list[dict[str, Any]], spec: Events) -> Turn:
             # harness never asked.
             if block.get("role") == "user":
                 continue
-            kind = block.get(spec.discriminator)
+            kind = _dig(block, spec.discriminator)
             if kind == spec.tool_marker:
+                args = _dig(block, spec.args_key)
                 turn.tool_calls.append(
                     ToolCall(
-                        name=str(block.get(spec.name_key, "")),
-                        args=dict(block.get(spec.args_key, {}) or {}),
+                        name=str(_dig(block, spec.name_key) or ""),
+                        args=dict(args) if isinstance(args, dict) else {},
                     )
                 )
-            elif kind == spec.text_marker and (text := str(block.get(spec.text_key, ""))):
+            elif kind == spec.text_marker and (text := str(_dig(block, spec.text_key) or "")):
                 turn.texts.append(text)
 
         # Role-tagged text lives outside the container. The prompt echo the
         # harness emits as role=user must not count as something it said.
-        content = record.get(spec.text_key) or record.get("content")
+        content = _dig(record, spec.text_key) or record.get("content")
         if (
             spec.container
             and record.get("role") == "assistant"

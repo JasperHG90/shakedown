@@ -5,7 +5,7 @@ here, then read [`scaffold-service`](../scaffold-service) for the fuller
 shape.
 
 ```bash
-uv run skeval run examples/write-plan
+uv run shakedown run examples/write-plan
 ```
 
 ## The skill
@@ -26,10 +26,11 @@ evidence about the harness rather than about the model's prose.
 | `fully-specified` | Both facts are in the prompt. The skill should fire, call `planctl`, and write the file without asking anything. |
 | `missing-owner` | The owner is withheld and `platform-team` is waiting as an answer. It counts only if that string ends up inside `PLAN.md`. |
 
-The second case is the interesting one. skeval never parses the question or
-checks the ordering — the artifact settles it. A reply is only ever handed
-over in answer to something the harness asked, so `platform-team` appearing
-in `PLAN.md` means the harness asked, accepted the answer, and acted on it.
+The second case is the interesting one. shakedown never parses the question
+or checks the ordering — the artifact settles it. A reply is only ever
+handed over in answer to something the harness asked, so `platform-team`
+appearing in `PLAN.md` means the harness asked, accepted the answer, and
+acted on it.
 
 `inputs_resolved` reports `n/a` for the first case: it withholds nothing, so
 there is nothing to resolve.

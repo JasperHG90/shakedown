@@ -8,13 +8,13 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from skeval.models import Answer, Artifact, Case, Harness, Skill
-from skeval.runner import converse
-from skeval.sandbox import create
+from shakedown.models import Answer, Artifact, Case, Harness, Skill
+from shakedown.runner import converse
+from shakedown.sandbox import create
 
 CANARY_DIR = Path(__file__).parent / "canary"
-CANARY_NAME = "skeval-canary"
-MARKER = "skeval-ok"
+CANARY_NAME = "shakedown-canary"
+MARKER = "shakedown-ok"
 
 CANARY_CASE = Case(
     name="canary",

@@ -2,7 +2,7 @@
 name     = "canary"
 prompt   = "Run the canary check."
 artifact = "canary.txt"
-tool     = "skeval-ok"
+tool     = "shakedown-ok"
 
   [[case.answers]]
   match = "(?i)which|what.*name|file name"

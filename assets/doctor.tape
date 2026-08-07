@@ -1,4 +1,4 @@
-# skeval doctor — check a harness against the prerequisites.
+# shakedown doctor — check a harness against the prerequisites.
 Output assets/doctor.gif
 
 Require uv
@@ -18,7 +18,7 @@ Type "export PS1='$ ' && export COLUMNS=140 && clear" Enter
 Show
 
 Sleep 800ms
-Type "uv run skeval doctor --harness claude-code" Sleep 600ms Enter
+Type "uv run shakedown doctor --harness claude-code" Sleep 600ms Enter
 Wait+Screen /qualifies/
 Sleep 400ms
 Sleep 2500ms

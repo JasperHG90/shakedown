@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 from rich.status import Status as Spinner
 
-from skeval.checks import Result, Status, run_all
-from skeval.console import console, failures_table, scores_table
-from skeval.models import Case, Config, Skill, Target, load_config, load_skill
-from skeval.report import REPORT_NAME, Report, RunRecord, TurnRecord
-from skeval.runner import converse
-from skeval.sandbox import create
+from shakedown.checks import Result, Status, run_all
+from shakedown.console import console, failures_table, scores_table
+from shakedown.models import Case, Config, Skill, Target, load_config, load_skill
+from shakedown.report import REPORT_NAME, Report, RunRecord, TurnRecord
+from shakedown.runner import converse
+from shakedown.sandbox import create
 
 #: Where the in-process report hangs, so the terminal hook can find it.
 REPORT = pytest.StashKey[Report]()
@@ -44,7 +44,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
     A run is minutes of silence otherwise: one scenario is a whole model
     round trip per turn. Capture has to be off for the animation to reach
-    the terminal rather than a discarded buffer, which is why `skeval run`
+    the terminal rather than a discarded buffer, which is why `shakedown run`
     passes `-s`. Under xdist the workers share one terminal, so the
     controller stays quiet rather than interleaving several spinners.
     """
@@ -80,10 +80,10 @@ def pytest_report_teststatus(
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """Register skeval's options."""
-    group = parser.getgroup("skeval")
+    """Register shakedown's options."""
+    group = parser.getgroup("shakedown")
     group.addoption("--skill", default=None, help="path to the skill under test")
-    group.addoption("--skeval-config", default=None, help="path to skeval.toml")
+    group.addoption("--shakedown-config", default=None, help="path to shakedown.toml")
     group.addoption("--harness", default=None, help="only targets whose label contains this")
     group.addoption("--repeat", type=int, default=None, help="runs per (target, case)")
     group.addoption("--timeout", type=float, default=300.0, help="seconds per turn")
@@ -98,7 +98,7 @@ def _worker_id(config: pytest.Config) -> str:
 
 
 #: Passed to xdist workers, which inherit the controller's environment.
-SHARD_ENV = "SKEVAL_SHARD_DIR"
+SHARD_ENV = "SHAKEDOWN_SHARD_DIR"
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -118,7 +118,7 @@ def pytest_configure(config: pytest.Config) -> None:
     if _worker_id(config) and inherited:
         config.stash[SHARDS] = Path(inherited)
         return
-    fresh = tempfile.mkdtemp(prefix="skeval-shards-")
+    fresh = tempfile.mkdtemp(prefix="shakedown-shards-")
     os.environ[SHARD_ENV] = fresh
     config.stash[SHARDS] = Path(fresh)
 
@@ -128,7 +128,7 @@ def _shard_dir(config: pytest.Config) -> Path:
 
 
 def _config(pytest_config: pytest.Config) -> Config:
-    path = pytest_config.getoption("--skeval-config")
+    path = pytest_config.getoption("--shakedown-config")
     return load_config(Path(path) if path else None)
 
 
@@ -141,7 +141,7 @@ def _skill(pytest_config: pytest.Config) -> Skill:
 
 @pytest.fixture(scope="session")
 def config(request: pytest.FixtureRequest) -> Config:
-    """The loaded skeval.toml."""
+    """The loaded shakedown.toml."""
     return _config(request.config)
 
 

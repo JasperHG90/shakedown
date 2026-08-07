@@ -1,4 +1,4 @@
-# skeval: harness conformance testing for agent skills
+# shakedown: smoke-testing agent skills across harnesses and models
 
 **One sentence:** given a harness and a model, does the same query produce
 the same procedural outcome?
@@ -140,7 +140,7 @@ events.py                     two known stream shapes -> ToolCall, text
 checks.py                     the three assertions
 ```
 
-Config lives in `skeval.toml`. Harness behavior lives in the harness.
+Config lives in `shakedown.toml`. Harness behavior lives in the harness.
 The framework runs things and asserts on what came back.
 
 ### Code budget
@@ -194,11 +194,11 @@ a reason, so the other two checks stay comparable across everything.
 ### `doctor`
 
 ```
-skeval doctor --harness opencode
+shakedown doctor --harness opencode
 ```
 
 The framework ships a **canary skill** whose entire content instructs the
-agent to run `echo skeval-ok`. Seeing that shell call in the output is
+agent to run `echo shakedown-ok`. Seeing that shell call in the output is
 only possible if the harness ran headless, loaded a skill, followed it, and
 emitted parseable output. One cheap task verifies prerequisites 1, 2, 3,
 and 5 at once. A second turn verifies 4.
@@ -340,21 +340,21 @@ with no content expectations.
 
 ## The CLI is a thin front for pytest
 
-`skeval` translates friendly flags into pytest arguments and gets out of
+`shakedown` translates friendly flags into pytest arguments and gets out of
 the way. It is a convenience, never a wall.
 
 ```bash
-skeval init                          # scaffold config + starter skill
-skeval doctor --harness gemini-cli   # verify the five prerequisites
-skeval run ./my-skill                # the whole matrix
-skeval run ./my-skill --repeat 5 --parallel 5
-skeval run ./my-skill --case missing-owner --sandbox container
-skeval run ./my-skill -x --pdb       # unknown arguments reach pytest
+shakedown init                          # scaffold config + starter skill
+shakedown doctor --harness gemini-cli   # verify the five prerequisites
+shakedown run ./my-skill                # the whole matrix
+shakedown run ./my-skill --repeat 5 --parallel 5
+shakedown run ./my-skill --case missing-owner --sandbox container
+shakedown run ./my-skill -x --pdb       # unknown arguments reach pytest
 ```
 
-The skill under test is a path, never config. Everything skeval needs about
-it lives under that one directory: `SKILL.md`, `cases.toml`, and an optional
-`bin/`. Nothing about a skill is registered anywhere.
+The skill under test is a path, never config. Everything shakedown needs
+about it lives under that one directory: `SKILL.md`, `cases.toml`, and an
+optional `bin/`. Nothing about a skill is registered anywhere.
 
 `--parallel N` maps to `-n N`. Every run is independent, so repeats and
 targets spread across processes and each worker writes a shard that the
@@ -373,7 +373,7 @@ Three rules keep it honest:
 That keeps the front thin: argument translation plus the `doctor` and
 `init` subcommands, which are the only two that are not tests. `init`
 scaffolds a skill shaped after the worked example rather than a template
-with holes in it, so the first `skeval run` is a real measurement.
+with holes in it, so the first `shakedown run` is a real measurement.
 
 ## Sandbox
 
@@ -497,12 +497,12 @@ true pass rate of 0.9 with N=5, P(5/5) is 0.59, so 41% of unregressed runs
 score 4/5 and fail against a 5/5 baseline, and a team switches that gate off
 within a week.
 
-But a gate needs counts, not runs. `skeval-report.json` already carries
+But a gate needs counts, not runs. `shakedown-report.json` already carries
 `scores[target][dimension]` with `passed` and `scored`, which is the entire
 input to a Wilson bound or a Fisher exact non-inferiority test. Anything
 that reads two of those files can gate, in CI or out of it, without this
 tool growing a statistics module or an opinion about what a regression is.
-Keeping it out preserves the property that skeval only measures.
+Keeping it out preserves the property that shakedown only measures.
 
 **Q3. Do harnesses need per-case timeouts, or is one global enough?**
 **One global is enough.** `--timeout` applies per turn, which is the unit

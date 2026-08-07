@@ -1,9 +1,8 @@
-name: skeval
+name: shakedown
 description: >-
-  Measure whether a skill still conforms on the harnesses you support.
-  Runs the conformance matrix, uploads the JSON report, and posts the
-  scores to the pull request.
-author: skeval
+  Smoke-test a skill on every harness you support. Runs the matrix,
+  uploads the JSON report, and posts the scores to the pull request.
+author: shakedown
 
 branding:
   icon: check-circle
@@ -14,7 +13,7 @@ inputs:
     description: Path to the skill under test (the directory holding SKILL.md).
     required: true
   config:
-    description: Path to skeval.toml. Defaults to discovery from the working directory.
+    description: Path to shakedown.toml. Defaults to discovery from the working directory.
     required: false
     default: ""
   harness:
@@ -40,9 +39,9 @@ inputs:
   report:
     description: Where to write the JSON report.
     required: false
-    default: skeval-report.json
+    default: shakedown-report.json
   python-version:
-    description: Python used to run skeval itself, not the harness.
+    description: Python used to run shakedown itself, not the harness.
     required: false
     default: "3.12"
   comment:
@@ -52,7 +51,7 @@ inputs:
   artifact-name:
     description: Name of the uploaded report artifact.
     required: false
-    default: skeval-report
+    default: shakedown-report
   github-token:
     description: Token used to post the comment. Needs pull-requests write.
     required: false
@@ -82,7 +81,7 @@ runs:
 
     # GITHUB_ACTION_PATH is this directory, and the package lives three
     # levels up at the repository root.
-    - name: Install skeval
+    - name: Install shakedown
       shell: bash
       run: |
         root=$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)
@@ -97,50 +96,50 @@ runs:
     #
     # A failure here must not skip the report: a red run is exactly when the
     # numbers are worth reading. The exit code is carried to the last step.
-    - name: Run the conformance matrix
+    - name: Run the matrix
       id: measure
       shell: bash
       env:
-        SKEVAL_SKILL: ${{ inputs.skill }}
-        SKEVAL_CONFIG: ${{ inputs.config }}
-        SKEVAL_HARNESS: ${{ inputs.harness }}
-        SKEVAL_CASE: ${{ inputs.case }}
-        SKEVAL_REPEAT: ${{ inputs.repeat }}
-        SKEVAL_PARALLEL: ${{ inputs.parallel }}
-        SKEVAL_SANDBOX: ${{ inputs.sandbox }}
-        SKEVAL_REPORT: ${{ inputs.report }}
+        SHAKEDOWN_SKILL: ${{ inputs.skill }}
+        SHAKEDOWN_CONFIG: ${{ inputs.config }}
+        SHAKEDOWN_HARNESS: ${{ inputs.harness }}
+        SHAKEDOWN_CASE: ${{ inputs.case }}
+        SHAKEDOWN_REPEAT: ${{ inputs.repeat }}
+        SHAKEDOWN_PARALLEL: ${{ inputs.parallel }}
+        SHAKEDOWN_SANDBOX: ${{ inputs.sandbox }}
+        SHAKEDOWN_REPORT: ${{ inputs.report }}
       run: |
-        args=(run "$SKEVAL_SKILL" --report "$SKEVAL_REPORT"
-              --sandbox "$SKEVAL_SANDBOX" --parallel "$SKEVAL_PARALLEL")
-        if [ -n "$SKEVAL_CONFIG" ]; then args+=(--config "$SKEVAL_CONFIG"); fi
-        if [ -n "$SKEVAL_HARNESS" ]; then args+=(--harness "$SKEVAL_HARNESS"); fi
-        if [ -n "$SKEVAL_CASE" ]; then args+=(--case "$SKEVAL_CASE"); fi
-        if [ -n "$SKEVAL_REPEAT" ]; then args+=(--repeat "$SKEVAL_REPEAT"); fi
+        args=(run "$SHAKEDOWN_SKILL" --report "$SHAKEDOWN_REPORT"
+              --sandbox "$SHAKEDOWN_SANDBOX" --parallel "$SHAKEDOWN_PARALLEL")
+        if [ -n "$SHAKEDOWN_CONFIG" ]; then args+=(--config "$SHAKEDOWN_CONFIG"); fi
+        if [ -n "$SHAKEDOWN_HARNESS" ]; then args+=(--harness "$SHAKEDOWN_HARNESS"); fi
+        if [ -n "$SHAKEDOWN_CASE" ]; then args+=(--case "$SHAKEDOWN_CASE"); fi
+        if [ -n "$SHAKEDOWN_REPEAT" ]; then args+=(--repeat "$SHAKEDOWN_REPEAT"); fi
 
         code=0
-        skeval "${args[@]}" || code=$?
+        shakedown "${args[@]}" || code=$?
         echo "exit-code=$code" >> "$GITHUB_OUTPUT"
 
-        if [ ! -f "$SKEVAL_REPORT" ]; then
-          echo "::error::skeval wrote no report (exit $code), so nothing was measured."
-          echo "::error::Run 'skeval doctor' to find which prerequisite the harness fails."
+        if [ ! -f "$SHAKEDOWN_REPORT" ]; then
+          echo "::error::shakedown wrote no report (exit $code), so nothing was measured."
+          echo "::error::Run 'shakedown doctor' to find which prerequisite the harness fails."
           exit "${code:-1}"
         fi
 
-        skeval summary "$SKEVAL_REPORT" > "$RUNNER_TEMP/skeval.md"
-        cat "$RUNNER_TEMP/skeval.md" >> "$GITHUB_STEP_SUMMARY"
+        shakedown summary "$SHAKEDOWN_REPORT" > "$RUNNER_TEMP/shakedown.md"
+        cat "$RUNNER_TEMP/shakedown.md" >> "$GITHUB_STEP_SUMMARY"
 
         python - <<'PY' >> "$GITHUB_OUTPUT"
         import json, os
-        counts = json.load(open(os.environ["SKEVAL_REPORT"]))["summary"]
+        counts = json.load(open(os.environ["SHAKEDOWN_REPORT"]))["summary"]
         print(f"passed={counts['ok']}")
         print(f"failed={counts['failed']}")
         PY
 
         {
-          echo "markdown<<SKEVAL_EOF"
-          cat "$RUNNER_TEMP/skeval.md"
-          echo "SKEVAL_EOF"
+          echo "markdown<<SHAKEDOWN_EOF"
+          cat "$RUNNER_TEMP/shakedown.md"
+          echo "SHAKEDOWN_EOF"
         } >> "$GITHUB_OUTPUT"
 
     - name: Upload the report
@@ -157,13 +156,13 @@ runs:
       if: always() && inputs.comment == 'true' && github.event_name == 'pull_request'
       uses: actions/github-script@v7
       env:
-        SKEVAL_MARKDOWN: ${{ steps.measure.outputs.markdown }}
+        SHAKEDOWN_MARKDOWN: ${{ steps.measure.outputs.markdown }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
-          const body = process.env.SKEVAL_MARKDOWN;
+          const body = process.env.SHAKEDOWN_MARKDOWN;
           if (!body) return;
-          const marker = '<!-- skeval-report -->';
+          const marker = '<!-- shakedown-report -->';
           const target = {
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -186,7 +185,7 @@ runs:
       if: always() && steps.measure.outputs.exit-code != '0'
       shell: bash
       env:
-        SKEVAL_EXIT: ${{ steps.measure.outputs.exit-code }}
+        SHAKEDOWN_EXIT: ${{ steps.measure.outputs.exit-code }}
       run: |
-        echo "::error::skeval exited $SKEVAL_EXIT"
-        exit "$SKEVAL_EXIT"
+        echo "::error::shakedown exited $SHAKEDOWN_EXIT"
+        exit "$SHAKEDOWN_EXIT"

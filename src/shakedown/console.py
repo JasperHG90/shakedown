@@ -8,10 +8,10 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from skeval.report import Score
+from shakedown.report import Score
 
 if TYPE_CHECKING:
-    from skeval.doctor import Check
+    from shakedown.doctor import Check
 
 console = Console()
 
@@ -30,7 +30,7 @@ def status_text(status: str) -> str:
 
 def scores_table(scores: dict[str, dict[str, Score]], *, isolated: bool) -> Table:
     """A table of per-target, per-dimension scores."""
-    table = Table(title="skeval", title_style="bold", header_style="bold")
+    table = Table(title="shakedown", title_style="bold", header_style="bold")
     for column in ("target", "dimension", "n", "passed", "rate", "n/a", "not triggered"):
         table.add_column(
             column, justify="right" if column not in ("target", "dimension") else "left"

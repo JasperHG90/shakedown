@@ -66,6 +66,76 @@ args_key      = "parameters"
 text_marker   = "message"
 text_key      = "content"
 
+# A third shape: the tool call is a top-level record, but its name and
+# arguments sit under a `part` object rather than beside the discriminator.
+# A key may therefore be a dotted path to one nested deeper in the block.
+#
+# opencode has no flag to set the session id, so the id shakedown generates
+# never reaches it and `--continue` resumes instead. That is safe here
+# because a sandbox is a fresh directory holding exactly one session.
+[harness.opencode]
+start = [
+  "opencode", "run", "{prompt}",
+  "--format", "json",
+  "--model", "{model}",
+  "--auto",
+]
+resume = [
+  "opencode", "run", "{reply}",
+  "--format", "json",
+  "--model", "{model}",
+  "--auto",
+  "--continue",
+]
+skills = ".opencode/skills"
+activation_tool = "skill"
+dockerfile = "examples/docker/opencode.Dockerfile"
+
+[harness.opencode.env]
+HOME = "${HOME}"
+
+[harness.opencode.events]
+name_key = "part.tool"
+args_key = "part.state.input"
+text_key = "part.text"
+
+# A harness that prints prose, not events. Hermes streams nothing
+# machine-readable while it works, so the transcript is exported after the
+# turn instead: `sessions export --format trace` writes Claude Code JSONL,
+# which is why this block reuses that event shape unchanged.
+#
+# The oneshot's own output goes to stderr rather than /dev/null, so a run
+# that fails for its own reasons says why instead of scoring as a skill
+# that never fired.
+#
+# `HERMES_HOME` is relative, so it resolves inside the sandbox: skills,
+# sessions, and config all land in the workspace. That is what makes
+# `--continue` unambiguous and puts the seeded skill where Hermes looks,
+# and it also means no host credentials are inherited — the API key below
+# is the whole of what it gets.
+[harness.hermes]
+start = [
+  "sh", "-c",
+  "hermes -z \"$1\" --provider openrouter -m \"$2\" >&2 && hermes sessions export --format trace -",
+  "hermes", "{prompt}", "{model}",
+]
+resume = [
+  "sh", "-c",
+  "hermes -c -z \"$1\" --provider openrouter -m \"$2\" >&2 && hermes sessions export --format trace -",
+  "hermes", "{reply}", "{model}",
+]
+skills = ".hermes/skills"
+activation_tool = "skill_view"
+dockerfile = "examples/docker/hermes.Dockerfile"
+
+[harness.hermes.env]
+HOME = "${HOME}"
+HERMES_HOME = ".hermes"
+OPENROUTER_API_KEY = "${OPENROUTER_API_KEY}"
+
+[harness.hermes.events]
+container = "message.content"
+
 [[matrix]]
 harness = "claude-code"
 models  = ["claude-opus-5"]
@@ -74,13 +144,21 @@ models  = ["claude-opus-5"]
 harness = "gemini-cli"
 models  = ["gemini-3.6-flash"]
 
+[[matrix]]
+harness = "opencode"
+models  = ["opencode/big-pickle"]
+
+[[matrix]]
+harness = "hermes"
+models  = ["openai/gpt-oss-120b"]
+
 # The same harness, pointed at another provider. Claude Code speaks to
 # whatever `ANTHROPIC_BASE_URL` names, so an Anthropic-shaped gateway in
 # front of Ollama Cloud makes an open model a target like any other. The
 # label is what keeps the two apart in the report; without it both rows
 # would read `claude-code`.
 #
-# Needs `BIFROST_CC_VIRTUAL_KEY` in your environment. `skeval` inherits
+# Needs `BIFROST_CC_VIRTUAL_KEY` in your environment. `shakedown` inherits
 # nothing, so a variable the harness needs has to be declared here.
 [[matrix]]
 harness = "claude-code"

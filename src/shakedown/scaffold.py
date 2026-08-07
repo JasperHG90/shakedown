@@ -1,8 +1,8 @@
-"""`skeval init`: a config and a starter skill.
+"""`shakedown init`: a config and a starter skill.
 
 The scaffold is runnable rather than illustrative, and shaped after
 `examples/write-plan`: a skill that must ask for what it was not given and
-must go through a CLI to write its artifact. `skeval run ./my-skill` is
+must go through a CLI to write its artifact. `shakedown run ./my-skill` is
 therefore a real measurement on the first try, not a template to fill in.
 """
 

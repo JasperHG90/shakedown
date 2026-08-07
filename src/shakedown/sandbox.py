@@ -18,11 +18,11 @@ from concurrent.futures import TimeoutError as FutureTimeout
 from functools import cache
 from pathlib import Path
 
-from skeval.models import CASES_NAME, Harness, Skill
+from shakedown.models import CASES_NAME, Harness, Skill
 
 WORK = "/work"
 
-#: Files that live beside a skill for skeval's benefit, not the model's.
+#: Files that live beside a skill for shakedown's benefit, not the model's.
 #: Seeding them would hand the model the answers it is being measured on.
 NOT_THE_SKILL = (CASES_NAME, "README.md")
 
@@ -58,7 +58,7 @@ def _image_for(name: str, image: str, dockerfile: str, stamp: float) -> str:
     built = DockerImage(
         path=path.parent,
         dockerfile_path=path.name,
-        tag=f"skeval-{name}:latest",
+        tag=f"shakedown-{name}:latest",
         clean_up=False,
     ).build()
     return str(built)
@@ -87,7 +87,7 @@ class Sandbox(ABC):
     def seed(self, harness: Harness, skill: Skill) -> None:
         """Copy the skill where the harness discovers it, plus any bin/.
 
-        Everything skeval keeps beside the skill is left out. ``cases.toml``
+        Everything shakedown keeps beside the skill is left out. ``cases.toml``
         holds the replies to the withheld inputs and the exact strings each
         artifact is checked for: a model that reads it can pass without
         being asked anything, which is the one thing ``inputs_resolved``
@@ -107,7 +107,7 @@ class TempSandbox(Sandbox):
     """A temp directory on the host. Fast, and not isolated."""
 
     def __init__(self, harness: Harness, *, keep: bool = False) -> None:
-        self.path = Path(tempfile.mkdtemp(prefix=f"skeval-{harness.name}-"))
+        self.path = Path(tempfile.mkdtemp(prefix=f"shakedown-{harness.name}-"))
         self.keep = keep
 
     def exec(self, argv: list[str], env: dict[str, str], timeout_s: float) -> tuple[int, str, str]:
@@ -141,7 +141,7 @@ class ContainerSandbox(Sandbox):
         from testcontainers.core.container import DockerContainer
 
         image = image_for(harness)
-        self.path = Path(tempfile.mkdtemp(prefix=f"skeval-{harness.name}-"))
+        self.path = Path(tempfile.mkdtemp(prefix=f"shakedown-{harness.name}-"))
         self.keep = keep
         self._container = (
             DockerContainer(image)

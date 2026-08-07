@@ -6,8 +6,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from skeval.models import Case, Harness
-from skeval.runner import Conversation
+from shakedown.models import Case, Harness
+from shakedown.runner import Conversation
 
 
 class Status(StrEnum):

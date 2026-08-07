@@ -1,4 +1,4 @@
-# skeval run — the conformance matrix over a real skill.
+# shakedown run — the conformance matrix over a real skill.
 Output assets/run.gif
 
 Require uv
@@ -11,14 +11,14 @@ Set Padding 24
 Set Theme "Catppuccin Mocha"
 Set WindowBar Colorful
 Set TypingSpeed 55ms
-Set WaitTimeout 300s
+Set WaitTimeout 900s
 
 Hide
 Type "export PS1='$ ' && export COLUMNS=150 && clear" Enter
 Show
 
 Sleep 800ms
-Type "uv run skeval run examples/scaffold-service -j 9" Sleep 600ms Enter
+Type "uv run shakedown run examples/scaffold-service -j 9" Sleep 600ms Enter
 Wait+Screen /report:/
 Sleep 400ms
 Sleep 2500ms

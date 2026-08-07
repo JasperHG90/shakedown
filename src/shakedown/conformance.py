@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from skeval.checks import Result, Status
+from shakedown.checks import Result, Status
 
 pytestmark = pytest.mark.live
 

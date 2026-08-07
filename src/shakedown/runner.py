@@ -14,9 +14,9 @@ from pathlib import Path
 import stamina
 from pydantic import BaseModel, Field
 
-from skeval.events import StreamError, ToolCall, Turn, parse, read
-from skeval.models import Case, Harness
-from skeval.sandbox import Sandbox
+from shakedown.events import StreamError, ToolCall, Turn, parse, read
+from shakedown.models import Case, Harness
+from shakedown.sandbox import Sandbox
 
 TURN_CAP = 6
 #: Harnesses return transient upstream errors ("the model returned an empty
@@ -70,9 +70,9 @@ def _once(
     code, stdout, stderr = box.exec(argv, harness.environment(), timeout_s)
     elapsed = time.monotonic() - started
 
-    out_path = box.path / f".skeval-{stem}.jsonl"
+    out_path = box.path / f".shakedown-{stem}.jsonl"
     out_path.write_text(stdout)
-    (box.path / f".skeval-{stem}.err").write_text(stderr)
+    (box.path / f".shakedown-{stem}.err").write_text(stderr)
 
     blob = f"{stdout}\n{stderr}".lower()
     if code != 0 and any(marker in blob for marker in RETRY_MARKERS):

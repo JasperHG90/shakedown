@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONFIG_NAME = "skeval.toml"
+CONFIG_NAME = "shakedown.toml"
 CASES_NAME = "cases.toml"
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
@@ -141,7 +141,7 @@ class Target(BaseModel):
 
 
 class Config(BaseModel):
-    """skeval.toml: harnesses and the matrix."""
+    """shakedown.toml: harnesses and the matrix."""
 
     harness: dict[str, Harness]
     matrix: list[MatrixEntry]
@@ -208,7 +208,7 @@ def _host(match: re.Match[str], *, harness: str, key: str) -> str:
 
 
 def find_config(start: Path | None = None) -> Path:
-    """Nearest skeval.toml, searching upward."""
+    """Nearest shakedown.toml, searching upward."""
     here = (start or Path.cwd()).resolve()
     for directory in (here, *here.parents):
         candidate = directory / CONFIG_NAME
@@ -218,7 +218,7 @@ def find_config(start: Path | None = None) -> Path:
 
 
 def load_config(path: Path | None = None) -> Config:
-    """Load and validate skeval.toml."""
+    """Load and validate shakedown.toml."""
     path = path or find_config()
     try:
         loaded = Config.model_validate(tomllib.loads(path.read_text()))

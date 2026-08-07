@@ -10,7 +10,7 @@ uv sync
 
 ## 2. Make your skill a self-contained directory
 
-`skeval` takes one path. Everything it needs lives under it:
+`shakedown` takes one path. Everything it needs lives under it:
 
 ```
 my-skill/
@@ -115,7 +115,7 @@ reply = "Billing migration"
 ## 4. Check your harness
 
 ```bash
-uv run skeval doctor
+uv run shakedown doctor
 ```
 
 ```
@@ -132,17 +132,17 @@ qualifies
 ```
 
 `doctor` runs a canary skill whose only instruction is to run
-`echo skeval-ok`. Seeing that call is only possible if the harness ran
+`echo shakedown-ok`. Seeing that call is only possible if the harness ran
 headless, discovered the skill, surfaced it to the model, followed it, and
 emitted parseable output.
 
 ## 5. Run it
 
 ```bash
-uv run skeval run ./my-skill
-uv run skeval run ./my-skill --repeat 5 --parallel 5
-uv run skeval run ./my-skill --harness claude-code --case missing-owner
-uv run skeval run ./my-skill --sandbox container
+uv run shakedown run ./my-skill
+uv run shakedown run ./my-skill --repeat 5 --parallel 5
+uv run shakedown run ./my-skill --harness claude-code --case missing-owner
+uv run shakedown run ./my-skill --sandbox container
 ```
 
 Every run is independent, so `--parallel` spreads them across processes.
@@ -161,10 +161,11 @@ the image.
 The container needs two things your host run gets for free:
 
 - **An environment.** Declare exactly one of `image` (already built and
-  pushed) or `dockerfile` (built for you, path relative to `skeval.toml`).
-  It holds the harness and whatever your skills need at runtime: a skill
-  whose `bin/` cannot execute fails its checks for reasons that have
-  nothing to do with the skill. `examples/docker/` has one per harness.
+  pushed) or `dockerfile` (built for you, path relative to
+  `shakedown.toml`). It holds the harness and whatever your skills need at
+  runtime: a skill whose `bin/` cannot execute fails its checks for reasons
+  that have nothing to do with the skill. `examples/docker/` has one per
+  harness.
 - **Credentials as env.** OAuth tokens on your host are not visible inside
   the container, so a harness that authenticates by browser login needs an
   API key declared in `[harness.*.env]` instead.
@@ -176,15 +177,15 @@ opening anything:
 
 ```
                                     failures
-┏━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┓
-┃ case          ┃ run ┃ failed           ┃ reason                ┃ workspace   ┃
-┡━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━┩
-│ missing-owner │ 2   │ artifact_created │ PLAN.md lacks         │ /tmp/skeval │
-│               │     │                  │ platform-team         │ -x8f2q1     │
-└───────────────┴─────┴──────────────────┴───────────────────────┴─────────────┘
+┏━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
+┃ case          ┃ run ┃ failed           ┃ reason           ┃ workspace        ┃
+┡━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
+│ missing-owner │ 2   │ artifact_created │ PLAN.md lacks    │ /tmp/shakedown-x │
+│               │     │                  │ platform-team    │ 8f2q1            │
+└───────────────┴─────┴──────────────────┴──────────────────┴──────────────────┘
 ```
 
-`skeval-report.json` carries the same thing in three layers.
+`shakedown-report.json` carries the same thing in three layers.
 
 **`summary`** answers "did it pass, and if not, what broke":
 
@@ -198,8 +199,8 @@ opening anything:
         "case": "missing-owner", "run": 2,
         "failed": ["artifact_created"],
         "reasons": ["PLAN.md lacks platform-team"],
-        "workspace": "/tmp/skeval-x8f2q1",
-        "streams": ["/tmp/skeval-x8f2q1/.skeval-turn0.jsonl"]
+        "workspace": "/tmp/shakedown-x8f2q1",
+        "streams": ["/tmp/shakedown-x8f2q1/.shakedown-turn0.jsonl"]
       }
     ]
   }
@@ -214,7 +215,7 @@ opening anything:
   "case": "missing-owner", "run": 0, "ok": true, "failed": [],
   "prompt": "Write a project plan titled Billing migration.",
   "turns": 2, "asked": ["platform-team"], "duration_s": 18.3,
-  "workspace": "/tmp/skeval-a1b2c3", "workspace_kept": false,
+  "workspace": "/tmp/shakedown-a1b2c3", "workspace_kept": false,
   "results": [{"name": "tool_used", "status": "pass", "reason": "invoked planctl"}]
 }
 ```
@@ -230,7 +231,7 @@ opening anything:
                  {"name": "Bash", "args": {"command": "planctl write ..."}}],
   "said": ["Who owns this plan?"],
   "denied": [],
-  "stream": "/tmp/skeval-a1b2c3/.skeval-turn0.jsonl"
+  "stream": "/tmp/shakedown-a1b2c3/.shakedown-turn0.jsonl"
 }
 ```
 
@@ -260,11 +261,11 @@ A composite action runs the matrix, uploads the report, and posts the
 scores to the PR.
 
 ```yaml
-name: skeval
+name: shakedown
 
 on:
   pull_request:
-    paths: ["my-skill/**", "skeval.toml"]
+    paths: ["my-skill/**", "shakedown.toml"]
 
 jobs:
   conformance:
@@ -280,7 +281,7 @@ jobs:
       # elsewhere. Pin the version, because that is what you are measuring.
       - run: npm i -g @anthropic-ai/claude-code@2.1.220
 
-      - uses: your-org/skeval/.github/actions/skeval@v1
+      - uses: your-org/shakedown/.github/actions/shakedown@v1
         with:
           skill: ./my-skill
           repeat: "5"
@@ -327,12 +328,12 @@ reading.
 | input | default | notes |
 |---|---|---|
 | `skill` | required | path to the skill directory |
-| `config` | discovered | path to `skeval.toml` |
+| `config` | discovered | path to `shakedown.toml` |
 | `harness` / `case` | all | substring filters |
 | `repeat` | from config | runs per target and case |
 | `parallel` | `1` | runs at a time |
 | `sandbox` | `tmp` | `container` for isolation |
-| `report` | `skeval-report.json` | where the JSON lands |
+| `report` | `shakedown-report.json` | where the JSON lands |
 | `comment` | `true` | set `false` to skip the PR comment |
 
 Outputs are `report`, `passed`, `failed`, and `markdown`.
@@ -347,7 +348,7 @@ than on a nightly schedule. `parallel` costs the same and finishes sooner.
 To render the comment yourself, or to feed the numbers to something else:
 
 ```bash
-skeval summary skeval-report.json
+shakedown summary shakedown-report.json
 ```
 
 ---
@@ -414,7 +415,7 @@ else. Values come from the host via `${VAR}`; the TOML holds references,
 never secrets.
 
 **`activation_tool`** is the substring identifying a skill-activation call,
-so `skeval` can tell "the skill never fired" from "it fired and failed".
+so `shakedown` can tell "the skill never fired" from "it fired and failed".
 
 ## `events`: where a tool call sits
 

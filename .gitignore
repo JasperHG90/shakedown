@@ -6,6 +6,6 @@ __pycache__/
 .pytest_cache/
 dist/
 *.egg-info/
-skeval-report.json
+shakedown-report.json
 *-report.json
 *.shards/

@@ -11,12 +11,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from skeval.checks import Result, Status
+from shakedown.checks import Result, Status
 
-REPORT_NAME = "skeval-report.json"
-#: Identifies skeval's own PR comment, so a rerun edits it instead of
+REPORT_NAME = "shakedown-report.json"
+#: Identifies shakedown's own PR comment, so a rerun edits it instead of
 #: adding another.
-MARKER = "<!-- skeval-report -->"
+MARKER = "<!-- shakedown-report -->"
 
 
 class TurnRecord(BaseModel):
@@ -140,7 +140,7 @@ class Report(BaseModel):
         reads across a row.
         """
         counts = self.summary()
-        head = MARKER + f"\n### skeval: `{self.skill}`\n"
+        head = MARKER + f"\n### shakedown: `{self.skill}`\n"
 
         if not self.runs:
             return head + "\nNo scenarios ran.\n"

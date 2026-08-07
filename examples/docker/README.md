@@ -14,7 +14,7 @@ lets you pin the version, so the harness you measured is the harness you
 can go back to.
 
 ```bash
-uv run skeval run examples/write-plan --sandbox container
+uv run shakedown run examples/write-plan --sandbox container
 ```
 
 The build runs at most once per process, keyed on the dockerfile's mtime.
@@ -40,7 +40,7 @@ Three things, and keep them in step across images:
 2. **Whatever your skills need at runtime** — `python3`, `git`, and so on.
    A skill that finds Python in one image and not another measures the
    image, not the harness.
-3. **`WORKDIR /work`.** skeval mounts the sandbox there and puts the
+3. **`WORKDIR /work`.** shakedown mounts the sandbox there and puts the
    skill's `bin/` on `PATH` ahead of everything else.
 
 ## Credentials

@@ -1,4 +1,4 @@
-"""The logo and the one-glance status block shown on a bare `skeval`."""
+"""The logo and the one-glance status block shown on a bare `shakedown`."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from rich.text import Text
 if TYPE_CHECKING:
     from rich.console import Console
 
-TAGLINE = "Harness conformance testing for agent skills."
+TAGLINE = "Smoke-test agent skills across harnesses and models."
 
 # The mark is two overlapping squares with the overlap filled: a skill run
 # through two harnesses, scored on where they agree.
@@ -34,9 +34,9 @@ GUTTER = 3
 
 
 def version() -> str:
-    """Installed skeval version, or ``dev`` when running from a source tree."""
+    """Installed shakedown version, or ``dev`` when running from a source tree."""
     try:
-        return importlib.metadata.version("skeval")
+        return importlib.metadata.version("shakedown")
     except importlib.metadata.PackageNotFoundError:
         return "dev"
 
@@ -72,14 +72,14 @@ def logo() -> list[Text]:
 
 
 def _config_line() -> Text:
-    """What config skeval would use from here, or what is wrong with it."""
-    from skeval.models import ConfigError, find_config, load_config
+    """What config shakedown would use from here, or what is wrong with it."""
+    from shakedown.models import ConfigError, find_config, load_config
 
     try:
         path = find_config()
     except (ConfigError, OSError):
-        return Text("no skeval.toml here — run ", style="yellow").append(
-            "skeval init", style="bold yellow"
+        return Text("no shakedown.toml here — run ", style="yellow").append(
+            "shakedown init", style="bold yellow"
         )
 
     # Just the name when the config is in this directory; the whole path when
@@ -89,9 +89,9 @@ def _config_line() -> Text:
         loaded = load_config(path)
     except ConfigError:
         # A config that exists but does not load is a different problem from
-        # no config at all, and `skeval init` would refuse to overwrite it.
+        # no config at all, and `shakedown init` would refuse to overwrite it.
         return Text(f"{where} is not loadable — run ", style="red").append(
-            "skeval doctor", style="bold red"
+            "shakedown doctor", style="bold red"
         )
 
     harnesses = len(loaded.harness)
@@ -123,7 +123,7 @@ def status_lines() -> list[Text]:
     """The lines printed beside the logo."""
     here = _cwd()
     return [
-        Text(f"skeval v{version()}", style="bold"),
+        Text(f"shakedown v{version()}", style="bold"),
         Text(TAGLINE, style="dim"),
         _config_line(),
         Text(_short(here) if here else "(working directory is gone)", style="dim"),
@@ -204,7 +204,7 @@ def banner(width: int | None = None) -> Text:
 def print_banner(console: Console) -> None:
     """Print the banner, unless the output is a pipe or a file.
 
-    A redirected `skeval` is being read by a script or a log, and block
+    A redirected `shakedown` is being read by a script or a log, and block
     characters would be noise there.
     """
     if not console.is_terminal:

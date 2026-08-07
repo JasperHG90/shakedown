@@ -11,9 +11,9 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from skeval.checks import Result, Status, artifact_created, inputs_resolved, run_all, tool_used
-from skeval.events import StreamError, ToolCall, Turn, parse, read
-from skeval.models import (
+from shakedown.checks import Result, Status, artifact_created, inputs_resolved, run_all, tool_used
+from shakedown.events import StreamError, ToolCall, Turn, parse, read
+from shakedown.models import (
     Answer,
     Case,
     ConfigError,
@@ -22,8 +22,8 @@ from skeval.models import (
     load_config,
     load_skill,
 )
-from skeval.report import MARKER, Report, RunRecord
-from skeval.runner import Conversation, _match
+from shakedown.report import MARKER, Report, RunRecord
+from shakedown.runner import Conversation, _match
 
 REPO = Path(__file__).resolve().parents[1]
 NESTED = Events(container="message.content")
@@ -31,6 +31,7 @@ FLAT = Events(name_key="tool_name", args_key="parameters")
 GEMINI = Events(
     name_key="tool_name", args_key="parameters", text_marker="message", text_key="content"
 )
+OPENCODE = Events(name_key="part.tool", args_key="part.state.input", text_key="part.text")
 
 
 def harness(**kw: Any) -> Harness:
@@ -95,6 +96,29 @@ def test_nested_and_flat_shapes_agree() -> None:
     assert nested.called("planctl") and flat.called("planctl")
 
 
+def test_a_key_may_be_a_dotted_path_into_the_block() -> None:
+    """opencode's record is flat, but the call itself is under `part`."""
+    turn = parse(
+        [
+            {
+                "type": "tool_use",
+                "part": {"tool": "bash", "state": {"input": {"command": "planctl write"}}},
+            },
+            {"type": "text", "part": {"text": "What should the file be named?"}},
+        ],
+        OPENCODE,
+    )
+    assert turn.called("planctl")
+    assert turn.said() == "What should the file be named?"
+
+
+def test_a_call_whose_arguments_are_absent_is_still_a_call() -> None:
+    """Half a path resolving is not a reason to lose the invocation."""
+    turn = parse([{"type": "tool_use", "part": {"tool": "bash"}}], OPENCODE)
+    assert [c.name for c in turn.tool_calls] == ["bash"]
+    assert turn.tool_calls[0].args == {}
+
+
 def test_one_record_may_carry_several_calls() -> None:
     """Counting records instead of blocks under-reports."""
     turn = parse(
@@ -157,7 +181,7 @@ def test_truncated_stream_raises(tmp_path: Path) -> None:
 
 def test_shipped_config_and_skill_load() -> None:
     """Both files in the repo are valid."""
-    config = load_config(REPO / "skeval.toml")
+    config = load_config(REPO / "shakedown.toml")
     skill = load_skill(REPO / "examples/write-plan")
 
     # Asserted by shape, not by listing them: harnesses get added, and a
@@ -221,7 +245,7 @@ def test_missing_env_var_is_named() -> None:
 
 def test_matrix_referencing_an_unknown_harness_is_refused(tmp_path: Path) -> None:
     """A typo should say what it was."""
-    p = tmp_path / "skeval.toml"
+    p = tmp_path / "shakedown.toml"
     p.write_text('[harness.a]\nstart=["x"]\nskills="d"\n[[matrix]]\nharness="nope"\nmodels=["m"]\n')
     with pytest.raises(ConfigError, match="nope"):
         load_config(p)
@@ -229,7 +253,7 @@ def test_matrix_referencing_an_unknown_harness_is_refused(tmp_path: Path) -> Non
 
 def test_env_override_yields_a_distinct_target() -> None:
     """Pointing a harness at another provider changes what is measured."""
-    config = load_config(REPO / "skeval.toml")
+    config = load_config(REPO / "shakedown.toml")
     entry = config.matrix[0].model_copy(
         update={"env": {"ANTHROPIC_BASE_URL": "https://x"}, "label": "claude-code/other"}
     )
@@ -375,7 +399,7 @@ def test_each_answer_is_supplied_once() -> None:
 
 def record(status: Status, name: str = "tool_used", target: str = "t") -> RunRecord:
     """A run record carrying one result."""
-    from skeval.checks import Result
+    from shakedown.checks import Result
 
     return RunRecord(
         target=target,
@@ -425,7 +449,7 @@ def test_markdown_summarizes_a_green_run() -> None:
     written = report.markdown()
 
     assert written.startswith(MARKER), "the marker lets a rerun edit its own comment"
-    assert "### skeval: `write-plan`" in written
+    assert "### shakedown: `write-plan`" in written
     assert "**2/2 scenarios passed** (PASS)" in written
     assert "| target | tool_used |" in written
     assert "| t | 100% (2) |" in written
@@ -472,7 +496,7 @@ def test_markdown_reports_an_unscored_dimension_as_not_applicable() -> None:
 # --- the github action ----------------------------------------------------
 
 
-ACTION = REPO / ".github" / "actions" / "skeval" / "action.yml"
+ACTION = REPO / ".github" / "actions" / "shakedown" / "action.yml"
 
 
 def action() -> dict[str, Any]:
@@ -490,19 +514,19 @@ def test_the_action_only_calls_commands_and_flags_that_exist() -> None:
     """
     from typer.testing import CliRunner
 
-    from skeval.cli import app
+    from shakedown.cli import app
 
     step = next(s for s in action()["runs"]["steps"] if s.get("id") == "measure")["run"]
 
     runner = CliRunner()
     for command in ("run", "summary"):
-        assert f"skeval {command}" in step or f"args=({command} " in step
+        assert f"shakedown {command}" in step or f"args=({command} " in step
         assert runner.invoke(app, [command, "--help"]).exit_code == 0
 
     used = set(re.findall(r"--[a-z-]+", step))
     helped = runner.invoke(app, ["run", "--help"]).output
     for flag in used:
-        assert flag in helped, f"{flag} is not a flag of `skeval run`"
+        assert flag in helped, f"{flag} is not a flag of `shakedown run`"
 
 
 def test_the_action_installs_from_the_package_root() -> None:
@@ -511,7 +535,7 @@ def test_the_action_installs_from_the_package_root() -> None:
     Moving either the action or the package silently breaks that walk, and
     the failure would only appear in someone's CI.
     """
-    step = next(s for s in action()["runs"]["steps"] if s.get("name") == "Install skeval")["run"]
+    step = next(s for s in action()["runs"]["steps"] if s.get("name") == "Install shakedown")["run"]
     walk = re.search(r"GITHUB_ACTION_PATH/((?:\.\./)*\.\.)", step)
     assert walk, "the install step must walk up to the package root"
 
@@ -560,7 +584,7 @@ def test_the_add_harness_skill_documents_a_config_that_loads(tmp_path: Path) -> 
     blocks = re.findall(r"```toml\n(.*?)```", skill.read_text(), re.DOTALL)
     assert blocks, "the skill must show a config"
 
-    written = tmp_path / "skeval.toml"
+    written = tmp_path / "shakedown.toml"
     written.write_text(blocks[0])
     loaded = load_config(written)
 
@@ -576,9 +600,9 @@ def test_the_add_harness_skill_documents_a_config_that_loads(tmp_path: Path) -> 
 
 def test_canary_is_a_loadable_skill() -> None:
     """doctor's whole verdict rests on it."""
-    canary = load_skill(REPO / "src/skeval/canary")
-    assert canary.name == "skeval-canary"
-    assert "skeval-ok" in (canary.path / "SKILL.md").read_text()
+    canary = load_skill(REPO / "src/shakedown/canary")
+    assert canary.name == "shakedown-canary"
+    assert "shakedown-ok" in (canary.path / "SKILL.md").read_text()
 
 
 def test_example_skill_forbids_writing_the_artifact_directly() -> None:
@@ -604,14 +628,14 @@ def test_harness_requires_start_and_skills() -> None:
         Harness(start=["x"])  # type: ignore[call-arg]
 
 
-def test_init_scaffolds_something_skeval_can_actually_load(tmp_path: Path) -> None:
+def test_init_scaffolds_something_shakedown_can_actually_load(tmp_path: Path) -> None:
     """A scaffold that does not parse is worse than no scaffold."""
-    from skeval.scaffold import scaffold
+    from shakedown.scaffold import scaffold
 
-    written = scaffold(tmp_path / "my-skill", tmp_path / "skeval.toml")
+    written = scaffold(tmp_path / "my-skill", tmp_path / "shakedown.toml")
     assert len(written) == 4
 
-    loaded = load_config(tmp_path / "skeval.toml")
+    loaded = load_config(tmp_path / "shakedown.toml")
     assert "claude-code" in loaded.harness
     assert [t.label for t in loaded.targets()] == ["claude-code/claude-opus-5"]
 
@@ -631,9 +655,9 @@ def test_the_scaffolded_cli_writes_the_artifact(tmp_path: Path) -> None:
     """The deterministic half has to work, or every case fails on setup."""
     import subprocess
 
-    from skeval.scaffold import scaffold
+    from shakedown.scaffold import scaffold
 
-    scaffold(tmp_path / "my-skill", tmp_path / "skeval.toml")
+    scaffold(tmp_path / "my-skill", tmp_path / "shakedown.toml")
     done = subprocess.run(
         [
             str(tmp_path / "my-skill" / "bin" / "notectl"),
@@ -656,13 +680,13 @@ def test_the_scaffolded_cli_writes_the_artifact(tmp_path: Path) -> None:
 
 def test_init_refuses_to_overwrite(tmp_path: Path) -> None:
     """Refuse rather than guess: a scaffold must never eat existing work."""
-    from skeval.scaffold import scaffold
+    from shakedown.scaffold import scaffold
 
-    scaffold(tmp_path / "my-skill", tmp_path / "skeval.toml")
+    scaffold(tmp_path / "my-skill", tmp_path / "shakedown.toml")
     (tmp_path / "my-skill" / "SKILL.md").write_text("mine")
 
     with pytest.raises(FileExistsError, match=r"SKILL\.md"):
-        scaffold(tmp_path / "my-skill", tmp_path / "skeval.toml")
+        scaffold(tmp_path / "my-skill", tmp_path / "shakedown.toml")
     assert (tmp_path / "my-skill" / "SKILL.md").read_text() == "mine"
 
 
@@ -679,7 +703,7 @@ def test_a_harness_declares_one_environment_not_two() -> None:
 
 def test_a_removed_config_key_is_refused_rather_than_ignored(tmp_path: Path) -> None:
     """`install` used to exist. Silently dropping it would look like it worked."""
-    written = tmp_path / "skeval.toml"
+    written = tmp_path / "shakedown.toml"
     written.write_text(
         '[harness.h]\nstart = ["x"]\nskills = ".s"\n'
         'install = "npm i -g something"\n\n'
@@ -691,7 +715,7 @@ def test_a_removed_config_key_is_refused_rather_than_ignored(tmp_path: Path) -> 
 
 def test_a_dockerfile_that_is_not_there_fails_at_load(tmp_path: Path) -> None:
     """Better than a build error deep inside the first scenario."""
-    written = tmp_path / "skeval.toml"
+    written = tmp_path / "shakedown.toml"
     written.write_text(
         '[harness.h]\nstart = ["x"]\nskills = ".s"\n'
         'dockerfile = "nope.Dockerfile"\n\n'
@@ -727,11 +751,11 @@ def _e2e(tmp_path: Path, *extra: str, skill: Path = FAKE / "skill") -> tuple[int
             "python",
             "-m",
             "pytest",
-            str(REPO / "src/skeval/conformance.py"),
+            str(REPO / "src/shakedown/conformance.py"),
             "-m",
             "live",
-            "--skeval-config",
-            str(FAKE / "skeval.toml"),
+            "--shakedown-config",
+            str(FAKE / "shakedown.toml"),
             "--skill",
             str(skill),
             "--repeat",
@@ -800,7 +824,7 @@ def test_a_green_run_still_prints_its_scores(tmp_path: Path) -> None:
     so a passing run printed nothing and only failures showed a table."""
     _e2e(tmp_path)
     printed = (tmp_path / "stdout.txt").read_text()
-    assert "skeval" in printed
+    assert "shakedown" in printed
     assert "tool_used" in printed, "the scores table must survive a green run"
     assert "report:" in printed
 
@@ -967,10 +991,10 @@ def test_container_backend_runs_and_isolates(tmp_path: Path, config: str) -> Non
             "python",
             "-m",
             "pytest",
-            str(REPO / "src/skeval/conformance.py"),
+            str(REPO / "src/shakedown/conformance.py"),
             "-m",
             "live",
-            "--skeval-config",
+            "--shakedown-config",
             str(FAKE / config),
             "--skill",
             str(FAKE / "skill"),
@@ -1004,7 +1028,7 @@ def test_the_answers_are_not_seeded_with_the_skill(tmp_path: Path) -> None:
     A model that reads it can satisfy `inputs_resolved` without ever being
     asked, which is the one thing that check claims to prove.
     """
-    from skeval.sandbox import TempSandbox
+    from shakedown.sandbox import TempSandbox
 
     box = TempSandbox(harness(skills=".x/skills"))
     try:
@@ -1027,7 +1051,7 @@ def test_a_hung_container_turn_times_out() -> None:
     """
     import time
 
-    from skeval.sandbox import create
+    from shakedown.sandbox import create
 
     box = create(
         load_config(FAKE / "container.toml").harness["fake"],
@@ -1048,7 +1072,7 @@ def test_a_hung_container_turn_times_out() -> None:
 @needs_docker
 def test_the_container_separates_stdout_from_stderr(tmp_path: Path) -> None:
     """Merged streams put a warning inside the JSON and the parse fails."""
-    from skeval.sandbox import create
+    from shakedown.sandbox import create
 
     box = create(
         load_config(FAKE / "container.toml").harness["fake"],
@@ -1068,7 +1092,7 @@ def test_the_container_separates_stdout_from_stderr(tmp_path: Path) -> None:
 @needs_docker
 def test_the_container_does_not_inherit_the_host_home(monkeypatch: pytest.MonkeyPatch) -> None:
     """`HOME = "${HOME}"` expands to a path the image does not have."""
-    from skeval.sandbox import WORK, create
+    from shakedown.sandbox import WORK, create
 
     monkeypatch.setenv("FAKE_COUNTER", "/work/count.txt")
     declared = load_config(FAKE / "container.toml").harness["fake"]
@@ -1094,7 +1118,7 @@ def test_the_container_keeps_its_own_path_and_finds_the_seeded_bin(
     test cannot catch that: its config invokes the harness by absolute
     path, so PATH never has to be right.
     """
-    from skeval.sandbox import create
+    from shakedown.sandbox import create
 
     monkeypatch.setenv("FAKE_COUNTER", "/work/count.txt")
     harness_under_test = load_config(FAKE / "container.toml").harness["fake"]
@@ -1118,7 +1142,7 @@ def test_the_banner_never_wraps_onto_the_logo(width: int) -> None:
     """
     from rich.cells import cell_len
 
-    from skeval.banner import banner
+    from shakedown.banner import banner
 
     for line in banner(width).plain.splitlines():
         assert cell_len(line) <= width, line
@@ -1130,7 +1154,7 @@ def test_a_wide_character_path_is_measured_in_columns(
     """A CJK path is half as many characters as columns, and would wrap."""
     from rich.cells import cell_len
 
-    from skeval.banner import banner
+    from shakedown.banner import banner
 
     wide = tmp_path / ("日本語のディレクトリ" * 3)
     wide.mkdir()
@@ -1143,30 +1167,30 @@ def test_a_wide_character_path_is_measured_in_columns(
 def test_the_banner_survives_a_deleted_working_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A build step that removes the directory you are in must not crash skeval."""
+    """A build step that removes the directory you are in must not crash shakedown."""
     import os
 
-    from skeval.banner import banner
+    from shakedown.banner import banner
 
     gone = tmp_path / "gone"
     gone.mkdir()
     monkeypatch.chdir(gone)
     os.rmdir(gone)
 
-    assert "skeval v" in banner(80).plain
+    assert "shakedown v" in banner(80).plain
 
 
 def test_a_broken_config_is_not_reported_as_a_missing_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`skeval init` is the wrong advice when the config exists but will not load."""
-    from skeval.banner import banner
+    """`shakedown init` is the wrong advice when the config exists but will not load."""
+    from shakedown.banner import banner
 
-    (tmp_path / "skeval.toml").write_text("this is not toml [[[\n")
+    (tmp_path / "shakedown.toml").write_text("this is not toml [[[\n")
     monkeypatch.chdir(tmp_path)
 
     shown = banner(200).plain
-    assert "no skeval.toml" not in shown
+    assert "no shakedown.toml" not in shown
     assert "not loadable" in shown
 
 
@@ -1174,26 +1198,26 @@ def test_the_banner_shows_the_version_the_tagline_and_where_it_is(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The point of the banner is answering "what am I about to run, and where"."""
-    from skeval.banner import banner, version
+    from shakedown.banner import TAGLINE, banner, version
 
     monkeypatch.chdir(tmp_path)
     shown = banner(200).plain
 
-    assert f"skeval v{version()}" in shown
-    assert "Harness conformance testing for agent skills." in shown
+    assert f"shakedown v{version()}" in shown
+    assert TAGLINE in shown
     # No config here, so the banner has to say so rather than stay silent.
-    assert "no skeval.toml" in shown
+    assert "no shakedown.toml" in shown
     assert str(tmp_path) in shown
 
 
 def test_the_banner_counts_the_matrix_it_found(monkeypatch: pytest.MonkeyPatch) -> None:
     """From a configured directory it reports the config, not the missing one."""
-    from skeval.banner import banner
+    from shakedown.banner import banner
 
     monkeypatch.chdir(FAKE)
     shown = banner(200).plain
-    assert "no skeval.toml" not in shown
-    assert "skeval.toml" in shown
+    assert "no shakedown.toml" not in shown
+    assert "shakedown.toml" in shown
     assert "harness" in shown and "target" in shown
 
 
@@ -1201,7 +1225,7 @@ def test_the_banner_stays_out_of_a_pipe() -> None:
     """Redirected output is read by a script or a log; block art is noise there."""
     from rich.console import Console
 
-    from skeval.banner import print_banner
+    from shakedown.banner import print_banner
 
     piped = Console(force_terminal=False, width=100)
     with piped.capture() as capture:
@@ -1211,28 +1235,28 @@ def test_the_banner_stays_out_of_a_pipe() -> None:
     terminal = Console(force_terminal=True, width=100)
     with terminal.capture() as capture:
         print_banner(terminal)
-    assert "skeval v" in capture.get()
+    assert "shakedown v" in capture.get()
 
 
-def test_a_bare_skeval_prints_the_help_and_succeeds() -> None:
-    """`skeval` with no arguments is a question, not a mistake."""
+def test_a_bare_shakedown_prints_the_help_and_succeeds() -> None:
+    """`shakedown` with no arguments is a question, not a mistake."""
     from typer.testing import CliRunner
 
-    from skeval.cli import app
+    from shakedown.cli import app
 
     # The real entrypoint takes its name from argv[0]; CliRunner would call
     # the root group "root" unless told what it is invoked as.
-    done = CliRunner().invoke(app, [], prog_name="skeval")
+    done = CliRunner().invoke(app, [], prog_name="shakedown")
     assert done.exit_code == 0
-    assert "Usage: skeval" in done.output
+    assert "Usage: shakedown" in done.output
     for command in ("run", "init", "summary", "doctor"):
         assert command in done.output
 
 
-def test_a_bare_skeval_leads_with_the_banner_in_a_terminal(
+def test_a_bare_shakedown_leads_with_the_banner_in_a_terminal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The banner is the point of a bare `skeval`, so pin it to the command.
+    """The banner is the point of a bare `shakedown`, so pin it to the command.
 
     CliRunner's stdout is a pipe, so without forcing a terminal the banner
     suppresses itself and this command has no test at all.
@@ -1240,20 +1264,20 @@ def test_a_bare_skeval_leads_with_the_banner_in_a_terminal(
     from rich.console import Console
     from typer.testing import CliRunner
 
-    from skeval import cli
+    from shakedown import cli
 
     monkeypatch.setattr(cli, "console", Console(force_terminal=True, width=100))
-    output = CliRunner().invoke(cli.app, [], prog_name="skeval").output
-    assert "skeval v" in output
-    assert output.index("skeval v") < output.index("Usage: skeval")
+    output = CliRunner().invoke(cli.app, [], prog_name="shakedown").output
+    assert "shakedown v" in output
+    assert output.index("shakedown v") < output.index("Usage: shakedown")
 
 
 def test_version_prints_just_the_version() -> None:
     """A version flag feeds a script, so it prints the number and nothing else."""
     from typer.testing import CliRunner
 
-    from skeval.banner import version
-    from skeval.cli import app
+    from shakedown.banner import version
+    from shakedown.cli import app
 
     done = CliRunner().invoke(app, ["--version"])
     assert done.exit_code == 0
