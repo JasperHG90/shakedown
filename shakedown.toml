@@ -66,6 +66,10 @@ args_key      = "parameters"
 text_marker   = "message"
 text_key      = "content"
 
+# The two harnesses below are worked examples of shapes the first two do
+# not cover. Neither has a `[[matrix]]` entry, so neither runs: add one to
+# measure against it.
+#
 # A third shape: the tool call is a top-level record, but its name and
 # arguments sit under a `part` object rather than beside the discriminator.
 # A key may therefore be a dotted path to one nested deeper in the block.
@@ -143,14 +147,6 @@ models  = ["claude-opus-5"]
 [[matrix]]
 harness = "gemini-cli"
 models  = ["gemini-3.6-flash"]
-
-[[matrix]]
-harness = "opencode"
-models  = ["opencode/big-pickle"]
-
-[[matrix]]
-harness = "hermes"
-models  = ["openai/gpt-oss-120b"]
 
 # The same harness, pointed at another provider. Claude Code speaks to
 # whatever `ANTHROPIC_BASE_URL` names, so an Anthropic-shaped gateway in
