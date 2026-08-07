@@ -13,11 +13,47 @@ import shutil
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
+from functools import cache
 from pathlib import Path
 
 from skeval.models import Harness, Skill
 
 WORK = "/work"
+
+
+@cache
+def _image_for(name: str, image: str, dockerfile: str, stamp: float) -> str:
+    """The image to run this harness in, built at most once per process.
+
+    A sandbox is created per scenario, so building or installing here would
+    repeat on every case, every repeat, every target. Cached on the
+    dockerfile's mtime, so editing it rebuilds and nothing else does.
+    """
+    del stamp
+    if image:
+        return image
+    if not dockerfile:
+        raise RuntimeError(
+            f"harness {name} declares neither `image` nor `dockerfile`, "
+            "so there is nothing to run a container from"
+        )
+
+    from testcontainers.core.image import DockerImage
+
+    path = Path(dockerfile)
+    built = DockerImage(
+        path=path.parent,
+        dockerfile_path=path.name,
+        tag=f"skeval-{name}:latest",
+        clean_up=False,
+    ).build()
+    return str(built)
+
+
+def image_for(harness: Harness) -> str:
+    """Resolve this harness to a runnable image."""
+    stamp = Path(harness.dockerfile).stat().st_mtime if harness.dockerfile else 0.0
+    return _image_for(harness.name, harness.image, harness.dockerfile, stamp)
 
 
 class Sandbox(ABC):
@@ -75,23 +111,20 @@ class TempSandbox(Sandbox):
 
 
 class ContainerSandbox(Sandbox):
-    """A container built from the harness's image. Isolated."""
+    """A container from the harness's image or dockerfile. Isolated."""
 
     def __init__(self, harness: Harness, *, keep: bool = False) -> None:
         from testcontainers.core.container import DockerContainer
 
-        if not harness.image:
-            raise RuntimeError(f"harness {harness.name} declares no image")
+        image = image_for(harness)
         self.path = Path(tempfile.mkdtemp(prefix=f"skeval-{harness.name}-"))
         self.keep = keep
         self._container = (
-            DockerContainer(harness.image)
+            DockerContainer(image)
             .with_volume_mapping(str(self.path), WORK, "rw")
             .with_command("sleep infinity")
         )
         self._container.start()
-        if harness.install:
-            self._sh(harness.install)
 
     def _sh(self, command: str) -> tuple[int, str, str]:
         code, output = self._container.exec(["sh", "-lc", command])

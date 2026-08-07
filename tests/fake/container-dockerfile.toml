@@ -1,0 +1,16 @@
+[harness.fake]
+start  = ["/work/bin/agent", "-p", "{prompt}", "--session-id", "{sid}"]
+resume = ["/work/bin/agent", "-p", "{reply}", "--resume", "{sid}"]
+skills = ".fake/skills"
+activation_tool = "Skill"
+dockerfile = "fake.Dockerfile"
+
+[harness.fake.env]
+FAKE_COUNTER = "${FAKE_COUNTER}"
+
+[harness.fake.events]
+container = "message.content"
+
+[[matrix]]
+harness = "fake"
+models  = ["m1"]

@@ -9,7 +9,7 @@ from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CONFIG_NAME = "skeval.toml"
 CASES_NAME = "cases.toml"
@@ -22,7 +22,14 @@ class ConfigError(Exception):
 
 
 class Events(BaseModel):
-    """Where a tool call sits in this harness's output."""
+    """Where a tool call sits in this harness's output.
+
+    Unknown keys are refused. A typo here would otherwise parse into a
+    default, find no tool calls, and fail every check for a reason nobody
+    could see.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     container: str = ""
     discriminator: str = "type"
@@ -34,7 +41,9 @@ class Events(BaseModel):
 
 
 class Harness(BaseModel):
-    """One harness, described entirely by config."""
+    """One harness, described entirely by config. Unknown keys are refused."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str = ""
     start: list[str]
@@ -42,9 +51,19 @@ class Harness(BaseModel):
     skills: str
     activation_tool: str = "Skill"
     image: str = ""
-    install: str = ""
+    dockerfile: str = ""
     events: Events = Field(default_factory=Events)
     env: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _one_environment(self) -> Harness:
+        """A container is built from one thing or pulled from another."""
+        if self.image and self.dockerfile:
+            raise ValueError(
+                "declare either `image` or `dockerfile`, not both: "
+                "an image is pulled, a dockerfile is built"
+            )
+        return self
 
     @property
     def supports_resume(self) -> bool:
@@ -202,9 +221,19 @@ def load_config(path: Path | None = None) -> Config:
     """Load and validate skeval.toml."""
     path = path or find_config()
     try:
-        return Config.model_validate(tomllib.loads(path.read_text()))
+        loaded = Config.model_validate(tomllib.loads(path.read_text()))
     except Exception as exc:
         raise ConfigError(f"{path}: {exc}") from exc
+
+    # Anchored to the config file, not the working directory, so the same
+    # config works whether CI runs from the repo root or anywhere else.
+    for harness in loaded.harness.values():
+        if harness.dockerfile:
+            resolved = (path.parent / harness.dockerfile).resolve()
+            if not resolved.is_file():
+                raise ConfigError(f"{path}: harness {harness.name}: no dockerfile at {resolved}")
+            harness.dockerfile = str(resolved)
+    return loaded
 
 
 @lru_cache(maxsize=32)

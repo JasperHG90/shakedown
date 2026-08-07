@@ -34,8 +34,9 @@ resume = [
 ]
 skills = ".claude/skills"
 activation_tool = "Skill"
-image = "node:22-slim"
-install = "npm i -g @anthropic-ai/claude-code@2.1.220"
+# For `--sandbox container`, declare exactly one of:
+#   image      = "ghcr.io/you/claude-code:2.1.220"
+#   dockerfile = "docker/claude-code.Dockerfile"
 
 [harness.claude-code.env]
 HOME = "${HOME}"

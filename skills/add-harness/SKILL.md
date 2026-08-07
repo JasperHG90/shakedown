@@ -69,8 +69,9 @@ resume = [
 skills = ".my-agent/skills"
 activation_tool = "Skill"
 
-image   = "ghcr.io/you/my-agent:1.2.3"
-install = "npm i -g my-agent@1.2.3"
+# Exactly one of these, and only for `--sandbox container`:
+image      = "ghcr.io/you/my-agent:1.2.3"
+# dockerfile = "docker/my-agent.Dockerfile"
 
 [harness.my-harness.env]
 MY_AGENT_TOKEN = "${MY_AGENT_TOKEN}"
@@ -101,7 +102,16 @@ else, which is what makes host contamination structurally impossible rather
 than something a flag suppresses. Values come from the host through `${VAR}`
 so the TOML holds references, never secrets.
 
-**`image` and `install`** are needed only for `--sandbox container`.
+**`image` or `dockerfile`** is needed only for `--sandbox container`, and
+declaring both is refused. Use `image` when you already build and push one,
+and `dockerfile` when you would rather keep the environment in the repo.
+Either way it holds the harness plus whatever the skills need at runtime,
+because a skill whose `bin/` cannot execute fails checks for reasons that
+have nothing to do with the skill. See `examples/docker/` for both
+harnesses.
+
+The path is relative to `skeval.toml`, and it is built once per run rather
+than per scenario.
 
 ## Step 3: Tell skeval where the tool calls are
 

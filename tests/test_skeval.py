@@ -159,10 +159,19 @@ def test_shipped_config_and_skill_load() -> None:
     """Both files in the repo are valid."""
     config = load_config(REPO / "skeval.toml")
     skill = load_skill(REPO / "examples/write-plan")
-    assert [t.label for t in config.targets()] == [
-        "claude-code/claude-opus-5",
-        "gemini-cli/gemini-3.6-flash",
-    ]
+
+    # Asserted by shape, not by listing them: harnesses get added, and a
+    # hardcoded list turns every addition into an unrelated test failure.
+    labels = [t.label for t in config.targets()]
+    assert labels, "the matrix must produce at least one target"
+    assert len(labels) == len(set(labels)), "a duplicate label averages two runs together"
+    for target in config.targets():
+        # A label may name a provider rather than the harness: pointing one
+        # harness at another backend is the whole point of the override.
+        assert target.harness.name in config.harness
+        assert target.model
+    assert "claude-code" in config.harness
+
     assert skill.name == "write-plan"
     assert skill.bin_dir is not None
 
@@ -657,6 +666,49 @@ def test_init_refuses_to_overwrite(tmp_path: Path) -> None:
     assert (tmp_path / "my-skill" / "SKILL.md").read_text() == "mine"
 
 
+def test_a_harness_declares_one_environment_not_two() -> None:
+    """An image is pulled and a dockerfile is built. Both is a contradiction."""
+    with pytest.raises(ValidationError, match="not both"):
+        Harness(
+            start=["x"],
+            skills=".s",
+            image="python:3.12-slim",
+            dockerfile="fake.Dockerfile",
+        )
+
+
+def test_a_removed_config_key_is_refused_rather_than_ignored(tmp_path: Path) -> None:
+    """`install` used to exist. Silently dropping it would look like it worked."""
+    written = tmp_path / "skeval.toml"
+    written.write_text(
+        '[harness.h]\nstart = ["x"]\nskills = ".s"\n'
+        'install = "npm i -g something"\n\n'
+        '[[matrix]]\nharness = "h"\nmodels = ["m"]\n'
+    )
+    with pytest.raises(ConfigError, match="install"):
+        load_config(written)
+
+
+def test_a_dockerfile_that_is_not_there_fails_at_load(tmp_path: Path) -> None:
+    """Better than a build error deep inside the first scenario."""
+    written = tmp_path / "skeval.toml"
+    written.write_text(
+        '[harness.h]\nstart = ["x"]\nskills = ".s"\n'
+        'dockerfile = "nope.Dockerfile"\n\n'
+        '[[matrix]]\nharness = "h"\nmodels = ["m"]\n'
+    )
+    with pytest.raises(ConfigError, match="no dockerfile at"):
+        load_config(written)
+
+
+def test_a_dockerfile_path_is_relative_to_the_config() -> None:
+    """CI runs from the repo root while the config may live elsewhere."""
+    loaded = load_config(FAKE / "container-dockerfile.toml")
+    resolved = Path(loaded.harness["fake"].dockerfile)
+    assert resolved.is_absolute()
+    assert resolved == (FAKE / "fake.Dockerfile").resolve()
+
+
 # --- end to end, against a fake harness -----------------------------------
 
 FAKE = REPO / "tests" / "fake"
@@ -863,8 +915,13 @@ needs_docker = pytest.mark.skipif(not _docker_available(), reason="docker is not
 
 
 @needs_docker
-def test_container_backend_runs_and_isolates(tmp_path: Path) -> None:
+@pytest.mark.parametrize("config", ["container.toml", "container-dockerfile.toml"])
+def test_container_backend_runs_and_isolates(tmp_path: Path, config: str) -> None:
     """The container backend executes a real conversation and reports isolated.
+
+    Run twice: once against a pulled `image`, once against a built
+    `dockerfile`. Both must reach the same place, since they are two ways of
+    declaring one environment.
 
     Uses the fake harness, so this costs nothing and needs no credentials.
     A real harness additionally needs its CLI in the image and credentials
@@ -883,7 +940,7 @@ def test_container_backend_runs_and_isolates(tmp_path: Path) -> None:
             "-m",
             "live",
             "--skeval-config",
-            str(FAKE / "container.toml"),
+            str(FAKE / config),
             "--skill",
             str(FAKE / "skill"),
             "--sandbox",

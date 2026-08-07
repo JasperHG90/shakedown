@@ -160,7 +160,11 @@ the image.
 
 The container needs two things your host run gets for free:
 
-- **The CLI in the image.** Set `image` and `install`.
+- **An environment.** Declare exactly one of `image` (already built and
+  pushed) or `dockerfile` (built for you, path relative to `skeval.toml`).
+  It holds the harness and whatever your skills need at runtime: a skill
+  whose `bin/` cannot execute fails its checks for reasons that have
+  nothing to do with the skill. `examples/docker/` has one per harness.
 - **Credentials as env.** OAuth tokens on your host are not visible inside
   the container, so a harness that authenticates by browser login needs an
   API key declared in `[harness.*.env]` instead.

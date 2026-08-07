@@ -21,8 +21,7 @@ resume = [
 ]
 skills = ".claude/skills"
 activation_tool = "Skill"
-image = "node:22-slim"
-install = "npm i -g @anthropic-ai/claude-code@2.1.220"
+dockerfile = "examples/docker/claude-code.Dockerfile"
 
 [harness.claude-code.env]
 HOME = "${HOME}"
@@ -30,6 +29,64 @@ HOME = "${HOME}"
 [harness.claude-code.events]
 container = "message.content"
 
+# A second harness. Everything differs: the flags, where skills are
+# discovered, the name of the activation tool, and the shape of the output.
+# None of that reaches the skill under test.
+[harness.gemini-cli]
+start = [
+  "gemini", "-p", "{prompt}",
+  "--output-format", "stream-json",
+  "--model", "{model}",
+  "--approval-mode", "yolo",
+  "--skip-trust",
+  "--session-id", "{sid}",
+]
+resume = [
+  "gemini", "-p", "{reply}",
+  "--output-format", "stream-json",
+  "--model", "{model}",
+  "--approval-mode", "yolo",
+  "--skip-trust",
+  "--resume", "{sid}",
+]
+skills = ".gemini/skills"
+activation_tool = "activate_skill"
+dockerfile = "examples/docker/gemini-cli.Dockerfile"
+
+[harness.gemini-cli.env]
+HOME = "${HOME}"
+
+# Flat records, not blocks nested under a message. Leaving `container`
+# unset is what selects that shape.
+[harness.gemini-cli.events]
+discriminator = "type"
+tool_marker   = "tool_use"
+name_key      = "tool_name"
+args_key      = "parameters"
+text_marker   = "message"
+text_key      = "content"
+
 [[matrix]]
 harness = "claude-code"
 models  = ["claude-opus-5"]
+
+[[matrix]]
+harness = "gemini-cli"
+models  = ["gemini-3.6-flash"]
+
+# The same harness, pointed at another provider. Claude Code speaks to
+# whatever `ANTHROPIC_BASE_URL` names, so an Anthropic-shaped gateway in
+# front of Ollama Cloud makes an open model a target like any other. The
+# label is what keeps the two apart in the report; without it both rows
+# would read `claude-code`.
+#
+# Needs `BIFROST_CC_VIRTUAL_KEY` in your environment. `skeval` inherits
+# nothing, so a variable the harness needs has to be declared here.
+[[matrix]]
+harness = "claude-code"
+label   = "ollama-cloud"
+models  = ["gpt-oss:120b"]
+
+[matrix.env]
+ANTHROPIC_BASE_URL   = "https://bifrost.lab.orangecluster.nl/anthropic"
+ANTHROPIC_AUTH_TOKEN = "${BIFROST_CC_VIRTUAL_KEY}"
