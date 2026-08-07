@@ -171,7 +171,7 @@ qualifies
 `shakedown run` executes the matrix and prints a pass rate per target and
 dimension, plus a warning when the sandbox was not isolated:
 
-![shakedown run executing the scaffold-service example across two targets, printing a scores table where every dimension passes](assets/run.gif)
+![shakedown run executing the scaffold-service example against the claude-code harness, printing a scores table where every dimension passes](assets/run.gif)
 
 Every run also writes `shakedown-report.json` with the per-run detail
 behind those numbers, including the argv, the tool calls, and the kept
