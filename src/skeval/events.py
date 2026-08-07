@@ -40,8 +40,13 @@ class Turn(BaseModel):
     stderr_tail: str = ""
 
     def said(self) -> str:
-        """Everything the agent said."""
-        return "\n".join(self.texts)
+        """Everything the agent said, as one line to match a question against.
+
+        Joined with a space, not a newline: a harness that streams a reply in
+        fragments would otherwise split a sentence, and ``.`` in an answer
+        pattern does not cross a newline.
+        """
+        return " ".join(self.texts)
 
     def called(self, needle: str) -> list[ToolCall]:
         """Calls whose name or arguments mention ``needle``."""
@@ -87,6 +92,12 @@ def parse(records: list[dict[str, Any]], spec: Events) -> Turn:
             turn.denied.append(str(name))
 
         for block in _descend(record, spec.container):
+            # A flat harness tags every message with a role, and its echo of
+            # the prompt is not something the agent said. Counting it lets a
+            # case whose own prompt mentions "owner" answer a question the
+            # harness never asked.
+            if block.get("role") == "user":
+                continue
             kind = block.get(spec.discriminator)
             if kind == spec.tool_marker:
                 turn.tool_calls.append(
