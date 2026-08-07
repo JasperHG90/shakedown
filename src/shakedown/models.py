@@ -13,6 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 CONFIG_NAME = "shakedown.toml"
 CASES_NAME = "cases.toml"
+#: Where cases live when they live outside the skill: `shakedowns/` beside
+#: the skill or above it, holding one `<slug>.cases.toml` per skill.
+CASES_DIR = "shakedowns"
+CASES_SUFFIX = ".cases.toml"
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
@@ -181,7 +185,11 @@ class Config(BaseModel):
 
 
 class Skill(BaseModel):
-    """The skill under test: one self-contained directory."""
+    """The skill under test: the directory that ships, and its cases.
+
+    ``path`` is only ever what a user installs. The cases measuring it may
+    sit outside that directory, and usually should.
+    """
 
     path: Path
     name: str
@@ -249,16 +257,69 @@ def _front_matter_name(skill_md: Path, mtime: float) -> str:
     raise ConfigError(f"{skill_md} front-matter declares no `name`")
 
 
+def find_cases(skill_dir: Path) -> Path:
+    """The cases for this skill, in resolution order.
+
+    1. ``shakedowns/<slug>.cases.toml``, beside the skill or anywhere
+       above it. Cases are what the skill is measured against, not part of
+       what ships, so this is where they belong.
+    2. ``<skill>/cases.toml``, for a skill that keeps them inside.
+
+    Searching upward rather than in one fixed place means a repo may hold
+    its `shakedowns/` at the root, beside the skills, or both.
+    """
+    slug = skill_dir.name
+    for directory in (skill_dir, *skill_dir.parents):
+        candidate = directory / CASES_DIR / f"{slug}{CASES_SUFFIX}"
+        if candidate.is_file():
+            return candidate
+
+    inside = skill_dir / CASES_NAME
+    if inside.is_file():
+        return inside
+
+    raise ConfigError(
+        f"no cases for {skill_dir}: expected {CASES_DIR}/{slug}{CASES_SUFFIX} "
+        f"beside it or above it, or {CASES_NAME} inside it"
+    )
+
+
 def load_skill(path: Path) -> Skill:
-    """Load a skill directory: SKILL.md, its cases, and any bin/."""
+    """Load the skill under test, from its directory or from its cases.
+
+    A cases file names the skill it measures, so either end resolves to
+    the same pair.
+    """
     path = path.resolve()
+    if path.is_file():
+        return _from_cases(path)
+
     skill_md = path / "SKILL.md"
     if not skill_md.is_file():
         raise ConfigError(f"{path} has no SKILL.md")
+    return _build(path, find_cases(path))
 
-    cases_file = path / CASES_NAME
-    if not cases_file.is_file():
-        raise ConfigError(f"{path} has no {CASES_NAME}")
+
+def _from_cases(cases_file: Path) -> Skill:
+    """Load the skill a cases file points at."""
+    raw = tomllib.loads(cases_file.read_text())
+    named = raw.get("skill")
+    if not named:
+        raise ConfigError(
+            f"{cases_file} declares no `skill`, so there is nothing to measure. "
+            "Name the skill directory it tests, relative to this file."
+        )
+    # Relative to the cases file, not the working directory: the pair moves
+    # together and is run from wherever CI happens to start.
+    skill_dir = (cases_file.parent / str(named)).resolve()
+    if not (skill_dir / "SKILL.md").is_file():
+        raise ConfigError(f"{cases_file}: `skill` names {skill_dir}, which has no SKILL.md")
+    return _build(skill_dir, cases_file)
+
+
+def _build(skill_dir: Path, cases_file: Path) -> Skill:
+    """One skill directory and the cases measuring it."""
+    skill_md = skill_dir / "SKILL.md"
     raw = tomllib.loads(cases_file.read_text())
     try:
         cases = [Case.model_validate(entry) for entry in raw.get("case", [])]
@@ -268,7 +329,7 @@ def load_skill(path: Path) -> Skill:
         raise ConfigError(f"{cases_file} declares no [[case]] blocks")
 
     return Skill(
-        path=path,
+        path=skill_dir,
         name=_front_matter_name(skill_md, skill_md.stat().st_mtime),
         cases=cases,
     )

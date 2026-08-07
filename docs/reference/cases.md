@@ -1,14 +1,41 @@
 # `cases.toml`
 
-A case is a prompt and what must be true afterwards. `cases.toml` sits
-beside `SKILL.md` in the skill directory and must declare at least one
-`[[case]]` block.
+A case is a prompt and what must be true afterwards. A cases file must
+declare at least one `[[case]]` block.
+
+## Where it lives
+
+Cases are what a skill is measured against, not part of what a user
+installs, so they belong outside the skill directory. Two locations are
+looked for, in this order:
+
+1. `shakedowns/<slug>.cases.toml`, beside the skill directory or anywhere
+   above it, where `<slug>` is the skill directory's name. The file names
+   the skill it measures with a `skill` key.
+2. `cases.toml` inside the skill directory, for a skill that keeps them
+   there. No `skill` key: it is already beside its subject.
+
+```toml
+# shakedowns/write-plan.cases.toml
+skill = "../examples/write-plan"
+```
+
+The path is relative to the cases file, so the pair moves together. Either
+end is a usable argument: `shakedown run examples/write-plan` and
+`shakedown run shakedowns/write-plan.cases.toml` resolve to the same pair.
+
+Searching upward means one `shakedowns/` at a repo root covers every skill
+nested under it, and a skill with a stale `cases.toml` still inside is not
+measured by it while the outer file exists.
+
+## What a case declares
 
 Every check is optional. A case declares only what applies to it, and a
 check it does not declare reports `unsupported` rather than failing.
 
 | Key | Type | Default | Declares | Omitting it means |
 |---|---|---|---|---|
+| `skill` | string | required outside the skill | The skill directory these cases measure, relative to this file | Resolved from the skill's own directory instead |
 | `name` | string | required | The case's identity, matched by `--case` | — |
 | `prompt` | string | required | What the agent is asked | — |
 | `tool` | string | none | The CLI the skill must go through | `tool_used` reports `unsupported` |

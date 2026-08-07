@@ -80,7 +80,7 @@ reading.
 
 | Input | Default | Description |
 |---|---|---|
-| `skill` | required | Path to the skill directory |
+| `skill` | required | Path to the skill directory, or to the cases file naming it |
 | `config` | discovered | Path to `shakedown.toml` |
 | `harness` | all | Only targets whose label contains this |
 | `case` | all | Only cases whose name contains this |

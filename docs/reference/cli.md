@@ -23,7 +23,7 @@ Runs every case in `SKILL` against every target in the matrix.
 
 | Argument | Type | Default | Description |
 |---|---|---|---|
-| `SKILL` | path | required | The skill directory: `SKILL.md`, `cases.toml`, optional `bin/` |
+| `SKILL` | path | required | The skill directory (`SKILL.md`, optional `bin/`), or the cases file naming it. See [where cases live](cases.md#where-it-lives) |
 | `PYTEST_ARGS` | strings | none | Passed through to pytest. See [passing pytest arguments](#passing-pytest-arguments) |
 
 | Option | Type | Default | Description |
@@ -78,8 +78,9 @@ is a working one shaped after the bundled example, so the first
 |---|---|---|---|
 | `--config` | path | `shakedown.toml` | Where to write the config |
 
-Writes `SKILL.md`, `cases.toml`, and an executable `bin/notectl` under
-`SKILL`, plus the config if it is absent.
+Writes `SKILL.md` and an executable `bin/notectl` under `SKILL`, the cases
+as `shakedowns/<SKILL>.cases.toml` beside it, plus the config if it is
+absent.
 
 **Exit code** `2` if any target file already exists. Nothing is overwritten,
 ever; the error names every clash.

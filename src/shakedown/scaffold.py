@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from shakedown.models import CASES_DIR, CASES_SUFFIX
+
 CONFIG = """\
 # Harnesses only. The skill under test is a path given to the entrypoint.
 
@@ -80,6 +82,12 @@ not write it through a shell redirect. The CLI owns the file's format.
 """
 
 CASES = """\
+# The skill these cases measure, relative to this file. Cases are what the
+# skill is measured against rather than part of what ships, so they live
+# out here. A skill that keeps `cases.toml` inside itself still works;
+# this location is simply looked for first.
+skill = "../{name}"
+
 # A case is a prompt and what must be true afterwards.
 # Every check is optional: declare only what applies.
 
@@ -148,7 +156,9 @@ def scaffold(skill_dir: Path, config: Path) -> list[Path]:
     """Write the config and the starter skill. Refuses to overwrite."""
     files = {
         skill_dir / "SKILL.md": SKILL.format(name=skill_dir.name),
-        skill_dir / "cases.toml": CASES,
+        skill_dir.parent / CASES_DIR / f"{skill_dir.name}{CASES_SUFFIX}": CASES.format(
+            name=skill_dir.name
+        ),
         skill_dir / "bin" / "notectl": CLI,
     }
     if not config.exists():

@@ -303,6 +303,83 @@ def test_a_skill_without_cases_is_refused(tmp_path: Path) -> None:
         load_skill(tmp_path)
 
 
+def _skill_dir(root: Path, name: str = "my-skill") -> Path:
+    """A minimal skill directory with no cases of its own."""
+    made = root / name
+    made.mkdir(parents=True)
+    (made / "SKILL.md").write_text(f"---\nname: {name}\ndescription: d\n---\nbody\n")
+    return made
+
+
+def _cases(named: str) -> str:
+    return f'skill = "{named}"\n[[case]]\nname="outside"\nprompt="p"\nartifact="A"\ntool="t"\n'
+
+
+def test_cases_may_live_outside_the_skill(tmp_path: Path) -> None:
+    """Cases are what the skill is measured against, not part of what ships."""
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(_cases("../my-skill"))
+
+    loaded = load_skill(skill)
+    assert loaded.path == skill.resolve()
+    assert [c.name for c in loaded.cases] == ["outside"]
+
+
+def test_a_cases_file_resolves_the_pair_from_its_end(tmp_path: Path) -> None:
+    """Either end names the other, so either end is a usable argument."""
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "shakedowns").mkdir()
+    cases_file = tmp_path / "shakedowns" / "my-skill.cases.toml"
+    cases_file.write_text(_cases("../my-skill"))
+
+    assert load_skill(cases_file).path == skill.resolve()
+
+
+def test_shakedowns_wins_over_cases_inside_the_skill(tmp_path: Path) -> None:
+    """Resolution order, or a stale copy inside would silently be measured."""
+    skill = _skill_dir(tmp_path)
+    (skill / "cases.toml").write_text('[[case]]\nname="inside"\nprompt="p"\ntool="t"\n')
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(_cases("../my-skill"))
+
+    assert [c.name for c in load_skill(skill).cases] == ["outside"]
+
+
+def test_cases_are_found_above_the_skill_too(tmp_path: Path) -> None:
+    """One `shakedowns/` at a repo root covers skills nested under it."""
+    skill = _skill_dir(tmp_path / "examples" / "nested")
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        _cases("../examples/nested/my-skill")
+    )
+
+    assert [c.name for c in load_skill(skill).cases] == ["outside"]
+
+
+def test_a_cases_file_naming_no_skill_is_refused(tmp_path: Path) -> None:
+    """Cases with no subject measure nothing."""
+    orphan = tmp_path / "orphan.cases.toml"
+    orphan.write_text('[[case]]\nname="c"\nprompt="p"\ntool="t"\n')
+    with pytest.raises(ConfigError, match="no `skill`"):
+        load_skill(orphan)
+
+
+def test_a_cases_file_naming_a_missing_skill_is_refused(tmp_path: Path) -> None:
+    """A path that resolves to nothing is a typo, not an empty run."""
+    stray = tmp_path / "stray.cases.toml"
+    stray.write_text(_cases("../nowhere"))
+    with pytest.raises(ConfigError, match=r"no SKILL\.md"):
+        load_skill(stray)
+
+
+def test_a_skill_with_no_cases_anywhere_names_both_places(tmp_path: Path) -> None:
+    """The error has to say where to put them, or it just says no."""
+    skill = _skill_dir(tmp_path)
+    with pytest.raises(ConfigError, match=r"shakedowns/my-skill\.cases\.toml.*cases\.toml"):
+        load_skill(skill)
+
+
 def test_prompt_stays_one_argument() -> None:
     """Substitution after splitting, so a prompt cannot inject flags."""
     assert harness().render(["bin", "-p", "{prompt}"], prompt="a b --rm -rf /") == [

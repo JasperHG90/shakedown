@@ -10,7 +10,9 @@ branding:
 
 inputs:
   skill:
-    description: Path to the skill under test (the directory holding SKILL.md).
+    description: >-
+      Path to the skill under test (the directory holding SKILL.md), or to
+      the cases file naming it.
     required: true
   config:
     description: Path to shakedown.toml. Defaults to discovery from the working directory.

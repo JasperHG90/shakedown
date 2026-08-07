@@ -135,7 +135,9 @@ def _config(pytest_config: pytest.Config) -> Config:
 def _skill(pytest_config: pytest.Config) -> Skill:
     path = pytest_config.getoption("--skill")
     if not path:
-        raise pytest.UsageError("--skill is required (path to the skill under test)")
+        raise pytest.UsageError(
+            "--skill is required (the skill under test, or the cases file naming it)"
+        )
     return load_skill(Path(path))
 
 

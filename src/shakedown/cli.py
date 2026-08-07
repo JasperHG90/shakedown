@@ -43,7 +43,9 @@ def root(
 
 @app.command()
 def run(
-    skill: Annotated[Path, typer.Argument(help="path to the skill under test")],
+    skill: Annotated[
+        Path, typer.Argument(help="the skill under test, or the cases file naming it")
+    ],
     config: Annotated[Path | None, typer.Option("--config")] = None,
     harness: Annotated[str | None, typer.Option(help="only targets matching this")] = None,
     case: Annotated[str | None, typer.Option(help="substring of a case name")] = None,

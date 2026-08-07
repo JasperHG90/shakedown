@@ -26,19 +26,26 @@ shakedown init
 ```
   + my-skill/SKILL.md
   + my-skill/bin/notectl
-  + my-skill/cases.toml
   + shakedown.toml
+  + shakedowns/my-skill.cases.toml
 
 next: shakedown doctor, then shakedown run my-skill
 ```
 
-Four files. Three of them are the skill:
+Four files. Two of them are the skill, the part a user would install:
 
 ```
 my-skill/
   SKILL.md      what the agent is told to do
-  cases.toml    what must be true afterwards
   bin/notectl   the CLI the skill must go through
+```
+
+The third, `shakedowns/my-skill.cases.toml`, is what the skill is measured
+against. It sits outside the skill for the same reason tests sit outside
+the code they test, and it names its subject at the top:
+
+```toml
+skill = "../my-skill"
 ```
 
 The fourth, `shakedown.toml`, describes the harness. Nothing in it mentions

@@ -10,19 +10,27 @@ Turn a skill you already ship into one shakedown can run.
 
 ## Procedure
 
-### 1. Make the skill a self-contained directory
+### 1. Leave the skill as it ships, and put the cases beside it
 
-shakedown takes one path, and everything it needs lives under it:
+The skill directory holds only what a user installs:
 
 ```
 my-skill/
-  SKILL.md      required. `name` in the front matter is the skill's identity
-  cases.toml    required. what to measure
-  bin/          optional. executables the skill expects on PATH
+  SKILL.md              required. `name` in the front matter is the skill's identity
+  bin/                  optional. executables the skill expects on PATH
+shakedowns/
+  my-skill.cases.toml   required. what to measure, and the skill it measures
 ```
 
+Cases are what the skill is held to rather than part of what ships, so
+they sit outside it and name their subject with `skill = "../my-skill"`. A
+skill that keeps a `cases.toml` inside itself still runs; the outer file is
+simply looked for first. See
+[where cases live](../reference/cases.md#where-it-lives).
+
 Nothing about your skill is registered anywhere else. No name, no bin path,
-no entry in `shakedown.toml`. Just the directory.
+no entry in `shakedown.toml`. Just the two paths, and either one works as
+the argument.
 
 Anything in `bin/` is copied into the workspace and put on PATH, so a skill
 that shells out to its own CLI works without installing anything.

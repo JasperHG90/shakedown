@@ -259,10 +259,16 @@ src/shakedown/
   scaffold.py     what `shakedown init` writes
   cli.py          a thin front for pytest
 examples/
-  write-plan/      SKILL.md, cases.toml, bin/planctl
+  write-plan/      SKILL.md, bin/planctl
   scaffold-service/  SKILL.md, cases.toml, bin/scaffoldctl
   docker/          images for the container sandbox
+shakedowns/
+  write-plan.cases.toml   cases live outside the skill they measure
 ```
+
+Both example skills run: `write-plan` keeps its cases in `shakedowns/`,
+which is where they belong and where shakedown looks first, and
+`scaffold-service` keeps them inside itself, which still works.
 
 `pytest` works directly, and `shakedown run` is a front for it. Unknown
 options are rejected rather than forwarded, so put pytest's own flags after
