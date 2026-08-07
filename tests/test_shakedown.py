@@ -12,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from shakedown.checks import Result, Status, artifact_created, inputs_resolved, run_all, tool_used
+from shakedown.doctor import verdict_on
 from shakedown.events import StreamError, ToolCall, Turn, parse, read
 from shakedown.models import (
     Answer,
@@ -117,6 +118,86 @@ def test_a_call_whose_arguments_are_absent_is_still_a_call() -> None:
     turn = parse([{"type": "tool_use", "part": {"tool": "bash"}}], OPENCODE)
     assert [c.name for c in turn.tool_calls] == ["bash"]
     assert turn.tool_calls[0].args == {}
+
+
+def test_arguments_that_are_not_an_object_are_refused() -> None:
+    """A path naming the wrong thing must not pass as a call with no arguments.
+
+    Every check that reads argument text would fail, and nothing would say
+    the config was pointed one level off.
+    """
+    with pytest.raises(StreamError):
+        parse([{"type": "tool_use", "part": {"tool": "bash", "state": "running"}}], OPENCODE)
+
+
+def test_the_shipped_harnesses_parse_their_own_output() -> None:
+    """The events blocks in shakedown.toml, against a line each harness emits.
+
+    A synthetic Events fixture proves the parser; it does not prove the
+    config. A dotted path pointed one level off would parse to nothing and
+    no other test would notice.
+    """
+    config = load_config(REPO / "shakedown.toml")
+
+    opencode = parse(
+        [
+            {
+                "type": "tool_use",
+                "part": {
+                    "type": "tool",
+                    "tool": "bash",
+                    "state": {"status": "completed", "input": {"command": "planctl write"}},
+                },
+            },
+            {"type": "text", "part": {"type": "text", "text": "What should it be named?"}},
+        ],
+        config.harness["opencode"].events,
+    )
+    assert [c.name for c in opencode.tool_calls] == ["bash"]
+    assert opencode.called("planctl")
+    assert opencode.said() == "What should it be named?"
+
+    # `sessions export --format trace` writes Claude Code JSONL.
+    hermes = parse(
+        [
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Running it."},
+                        {
+                            "type": "tool_use",
+                            "name": "terminal",
+                            "input": {"command": "planctl write"},
+                        },
+                    ],
+                },
+            }
+        ],
+        config.harness["hermes"].events,
+    )
+    assert [c.name for c in hermes.tool_calls] == ["terminal"]
+    assert hermes.called("planctl")
+    assert hermes.said() == "Running it."
+
+
+def test_a_later_turn_timing_out_is_not_the_opening_run_failing() -> None:
+    """It read `headless run: FAIL, exit 0`, which accused the wrong one."""
+    talked = Conversation(
+        turns=[Turn(exit_code=0, texts=["hi"]), Turn(exit_code=-1, timed_out=True)]
+    )
+    headless = verdict_on(talked, harness())[0]
+    assert headless.ok
+    assert headless.detail == "exit 0"
+
+
+def test_an_opening_turn_that_times_out_says_so() -> None:
+    """`exit -1` describes the plumbing; the timeout is the finding."""
+    stalled = Conversation(turns=[Turn(exit_code=-1, timed_out=True)])
+    headless = verdict_on(stalled, harness())[0]
+    assert not headless.ok
+    assert headless.detail == "timed out"
 
 
 def test_one_record_may_carry_several_calls() -> None:
@@ -545,11 +626,20 @@ def test_the_action_installs_from_the_package_root() -> None:
 
 
 def test_the_documented_uses_path_points_at_the_action() -> None:
-    """The docs are where a user copies from, so a stale path breaks everyone."""
-    docs = (REPO / "GETTING_STARTED.md").read_text()
-    quoted = re.search(r"uses: \S+/(\.github\S*)@", docs)
-    assert quoted, "the CI section must show a `uses:` line"
-    assert (REPO / quoted.group(1) / "action.yml") == ACTION
+    """The docs are where a user copies from, so a stale path breaks everyone.
+
+    Every markdown file is searched rather than one named page, so moving
+    the CI guide cannot quietly stop this from checking anything.
+    """
+    pages = [REPO / "README.md", *(REPO / "docs").rglob("*.md")]
+    found = [
+        match.group(1)
+        for page in pages
+        for match in re.finditer(r"uses: \S+/(\.github\S*)@", page.read_text())
+    ]
+    assert found, "some page must show a `uses:` line for the action"
+    for path in found:
+        assert (REPO / path / "action.yml") == ACTION
 
 
 def test_the_actions_comment_marker_matches_the_one_it_looks_for() -> None:

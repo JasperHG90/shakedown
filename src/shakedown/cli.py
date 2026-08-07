@@ -152,6 +152,9 @@ def doctor(
     config: Annotated[Path | None, typer.Option("--config")] = None,
     harness: Annotated[str | None, typer.Option(help="only this harness")] = None,
     sandbox: Annotated[str, typer.Option(help="tmp or container")] = "tmp",
+    model: Annotated[
+        str | None, typer.Option(help="the model to check with; defaults to the matrix")
+    ] = None,
 ) -> None:
     """Check a harness against the prerequisites."""
     try:
@@ -166,8 +169,18 @@ def doctor(
         if name not in loaded.harness:
             console.print(f"[red]unknown harness {name!r}[/]")
             raise typer.Exit(2)
-        model = next((t.model for t in loaded.targets() if t.harness.name == name), "")
-        found = _diagnose(name, loaded.harness[name], model=model, sandbox=sandbox)
+        # A harness the matrix does not name is a worked example, not a
+        # target. Running it with an empty model would answer a question
+        # nobody asked: every check fails, and the verdict blames the
+        # harness for a model that was never chosen.
+        chosen = model or next((t.model for t in loaded.targets() if t.harness.name == name), "")
+        if not chosen:
+            console.print(
+                f"[red]harness {name!r} has no [[matrix]] entry, so there is no model "
+                "to check it with. Add one, or pass --model.[/]"
+            )
+            raise typer.Exit(2)
+        found = _diagnose(name, loaded.harness[name], model=chosen, sandbox=sandbox)
         console.print(checks_table(name, found.checks))
         console.print(found.verdict())
         console.print(f"[dim]canary workspace: {found.workspace}[/]")

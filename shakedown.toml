@@ -110,22 +110,26 @@ text_key = "part.text"
 #
 # The oneshot's own output goes to stderr rather than /dev/null, so a run
 # that fails for its own reasons says why instead of scoring as a skill
-# that never fired.
+# that never fired. The export writes the most recent session, and `-c`
+# opens a new one, so a resumed turn's stdout is that turn.
 #
-# `HERMES_HOME` is relative, so it resolves inside the sandbox: skills,
-# sessions, and config all land in the workspace. That is what makes
-# `--continue` unambiguous and puts the seeded skill where Hermes looks,
-# and it also means no host credentials are inherited — the API key below
-# is the whole of what it gets.
+# `--no-redact` because the export redacts tool arguments by default, and
+# those arguments are what `tool_used` reads: a redacted command is a
+# check failing on the transcript rather than on the run.
+#
+# `HERMES_HOME` is relative, so it resolves inside the sandbox: Hermes'
+# own skills, sessions, and config land in the workspace rather than in
+# `~/.hermes`. That is what makes `-c` unambiguous, puts the seeded skill
+# where Hermes looks, and leaves the API key below as its only credential.
 [harness.hermes]
 start = [
   "sh", "-c",
-  "hermes -z \"$1\" --provider openrouter -m \"$2\" >&2 && hermes sessions export --format trace -",
+  "hermes -z \"$1\" --provider openrouter -m \"$2\" >&2 && hermes sessions export --format trace --no-redact -",
   "hermes", "{prompt}", "{model}",
 ]
 resume = [
   "sh", "-c",
-  "hermes -c -z \"$1\" --provider openrouter -m \"$2\" >&2 && hermes sessions export --format trace -",
+  "hermes -c -z \"$1\" --provider openrouter -m \"$2\" >&2 && hermes sessions export --format trace --no-redact -",
   "hermes", "{reply}", "{model}",
 ]
 skills = ".hermes/skills"

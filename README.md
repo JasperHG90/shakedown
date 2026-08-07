@@ -105,10 +105,25 @@ The parts are ones you already know how to drive: pytest is the runner, so
 isolation. A harness is a block of TOML rather than a plugin to write, and
 the container it runs in is yours.
 
+## Install
+
+You need [`uv`](https://docs.astral.sh/uv/), Python 3.11+, and at least one
+harness CLI on your `PATH`. shakedown runs harnesses; it does not install
+them.
+
+```bash
+uv tool install git+https://github.com/JasperHG90/shakedown
+shakedown --version
+```
+
+Not on PyPI — `pip install shakedown` gets an unrelated package last touched
+in 2013. Full options, including running from a clone, are in
+[Install shakedown](docs/how-to/install.md).
+
 ## Quick start
 
-You need [`uv`](https://docs.astral.sh/uv/) and at least one harness CLI on
-your `PATH`.
+New to it? The [tutorial](docs/tutorials/first-run.md) walks the whole loop
+in about ten minutes. The short version, from a clone of this repo:
 
 **Trim `shakedown.toml` before your first run.** It ships three targets —
 Claude Code, Gemini CLI, and Claude Code pointed at Ollama Cloud through a
@@ -249,13 +264,33 @@ examples/
   docker/          images for the container sandbox
 ```
 
-`pytest` works directly, and `shakedown run` is a front for it. Positional
-arguments are passed through; its own flags are not, so reach for `pytest`
-when you want `-x` or `--lf`:
+`pytest` works directly, and `shakedown run` is a front for it. Unknown
+options are rejected rather than forwarded, so put pytest's own flags after
+a `--`:
 
 ```bash
+uv run shakedown run examples/write-plan -- -x --timeout 60
 uv run pytest src/shakedown/conformance.py -m live --skill examples/write-plan -x
 ```
+
+## Documentation
+
+Full docs live in [`docs/`](docs/README.md), split four ways:
+
+- **[Tutorial](docs/tutorials/first-run.md)** — your first run, start to
+  finish.
+- **How-to** — [install](docs/how-to/install.md),
+  [measure your own skill](docs/how-to/measure-your-own-skill.md),
+  [add a harness](docs/how-to/add-a-harness.md),
+  [isolate runs in a container](docs/how-to/isolate-runs-in-a-container.md),
+  [gate a pull request](docs/how-to/gate-a-pull-request.md).
+- **Reference** — [CLI](docs/reference/cli.md),
+  [`shakedown.toml`](docs/reference/configuration.md),
+  [`cases.toml`](docs/reference/cases.md),
+  [the JSON report](docs/reference/report.md).
+- **Explanation** —
+  [what shakedown measures](docs/explanation/what-shakedown-measures.md),
+  [design decisions](docs/explanation/design-decisions.md).
 
 ## Contributing
 
@@ -266,3 +301,7 @@ A harness that does not qualify is still worth knowing about.
 
 Run `uv run pytest` before you push. It spends nothing on models; the
 container tests want a running Docker and skip without one.
+
+## License
+
+[Apache 2.0](LICENSE).

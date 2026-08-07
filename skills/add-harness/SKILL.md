@@ -144,10 +144,13 @@ text_key      = "text"
 text_marker   = "text"
 ```
 
-Every one of those keys may itself be a dotted path, which covers a flat
-record that still buries what you need. opencode's tool call is top-level
-but carries its name and arguments under a `part` object, so it reads
-`name_key = "part.tool"` and `args_key = "part.state.input"`.
+The four that name a key — `discriminator`, `name_key`, `args_key`,
+`text_key` — may each be a dotted path, which covers a flat record that
+still buries what you need. opencode's tool call is top-level but carries
+its name and arguments under a `part` object, so it reads `name_key =
+"part.tool"` and `args_key = "part.state.input"`. (`tool_marker` and
+`text_marker` are values compared against, not keys, so a dot in one does
+nothing.)
 
 A harness matching neither shape fails at `doctor` step 3, loudly, instead
 of silently scoring zero everywhere.
@@ -163,16 +166,18 @@ be two commands.
 ```toml
 start = [
   "sh", "-c",
-  "hermes -z \"$1\" -m \"$2\" >&2 && hermes sessions export --format trace -",
+  "hermes -z \"$1\" -m \"$2\" >&2 && hermes sessions export --format trace --no-redact -",
   "hermes", "{prompt}", "{model}",
 ]
 ```
 
 The prompt stays a positional argument (`$1`) rather than being pasted
 into the script, so it is still exactly one argument and still cannot
-become a flag. Send the harness's own prose to stderr rather than
-`/dev/null`: a run that fails for its own reasons then says why, instead
-of scoring as a skill that never fired.
+become a flag. Check what the export does to the transcript on the way
+out, too: Hermes redacts tool arguments unless told not to, and those
+arguments are what `tool_used` reads. Send the harness's own prose to
+stderr rather than `/dev/null`: a run that fails for its own reasons then
+says why, instead of scoring as a skill that never fired.
 
 ## Step 4: Let the harness run the tool
 

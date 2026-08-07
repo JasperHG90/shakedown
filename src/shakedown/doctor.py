@@ -9,7 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from shakedown.models import Answer, Artifact, Case, Harness, Skill
-from shakedown.runner import converse
+from shakedown.runner import Conversation, converse
 from shakedown.sandbox import create
 
 CANARY_DIR = Path(__file__).parent / "canary"
@@ -96,6 +96,17 @@ def diagnose(
             notify(TURN_LABELS[index] if index < len(TURN_LABELS) else f"turn {index + 1}")
 
     convo = converse(box, harness, CANARY_CASE, model=model, timeout_s=180.0, notify=announce)
+    return Diagnosis(
+        harness=harness.name, checks=verdict_on(convo, harness), workspace=str(box.path)
+    )
+
+
+def verdict_on(convo: Conversation, harness: Harness) -> list[Check]:
+    """What one canary conversation says about the prerequisites.
+
+    Separate from ``diagnose`` because the reading is worth testing and the
+    running costs money.
+    """
     first = convo.first
 
     fired = convo.skill_fired(harness, CANARY_NAME)
@@ -106,8 +117,8 @@ def diagnose(
         Check(
             number=1,
             name="headless run",
-            ok=first.exit_code == 0 and not convo.timed_out,
-            detail=f"exit {first.exit_code}",
+            ok=first.exit_code == 0 and not first.timed_out,
+            detail="timed out" if first.timed_out else f"exit {first.exit_code}",
         ),
         Check(
             number=2,
@@ -148,4 +159,4 @@ def diagnose(
             required=False,
         ),
     ]
-    return Diagnosis(harness=harness.name, checks=checks, workspace=str(box.path))
+    return checks

@@ -34,6 +34,7 @@ class Turn(BaseModel):
     skills_offered: list[str] = Field(default_factory=list)
     denied: list[str] = Field(default_factory=list)
     exit_code: int = 0
+    timed_out: bool = False
     argv: list[str] = Field(default_factory=list)
     duration_s: float = 0.0
     stream: str = ""
@@ -85,11 +86,19 @@ def _dig(block: dict[str, Any], path: str) -> Any:
     opencode puts the tool name and its arguments under a ``part`` object
     rather than beside the discriminator, so a flat lookup would find
     neither. A plain key has no dot in it and takes the first iteration.
+
+    A key that is simply not there is absent, and the caller decides what
+    that means. A key that is there but holds something the rest of the
+    path cannot be walked into is a config pointed at the wrong thing, and
+    silently reading it as absent would fail every downstream check for a
+    reason nobody could see.
     """
     node: Any = block
     for part in path.split("."):
-        if not isinstance(node, dict):
+        if node is None:
             return None
+        if not isinstance(node, dict):
+            raise StreamError(f"{path!r} runs through a {type(node).__name__}, not an object")
         node = node.get(part)
     return node
 
@@ -115,11 +124,19 @@ def parse(records: list[dict[str, Any]], spec: Events) -> Turn:
                 continue
             kind = _dig(block, spec.discriminator)
             if kind == spec.tool_marker:
+                # Absent arguments are a call with none. Arguments that are
+                # there but are not an object mean `args_key` names the wrong
+                # thing, and guessing `{}` at that would fail every check
+                # that greps argument text for a reason nobody could see.
                 args = _dig(block, spec.args_key)
+                if args is not None and not isinstance(args, dict):
+                    raise StreamError(
+                        f"{spec.args_key!r} is {type(args).__name__}, not an object: {args!r}"
+                    )
                 turn.tool_calls.append(
                     ToolCall(
                         name=str(_dig(block, spec.name_key) or ""),
-                        args=dict(args) if isinstance(args, dict) else {},
+                        args=dict(args or {}),
                     )
                 )
             elif kind == spec.text_marker and (text := str(_dig(block, spec.text_key) or "")):

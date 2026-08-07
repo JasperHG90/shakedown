@@ -80,6 +80,9 @@ def _once(
 
     turn = parse(read(out_path), harness.events)
     turn.exit_code = code
+    # Recorded per turn as well as per conversation: a later turn timing
+    # out must not be reported against the opening one.
+    turn.timed_out = code == -1
     turn.argv = argv
     turn.duration_s = round(elapsed, 2)
     turn.stream = str(out_path)
