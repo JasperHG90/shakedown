@@ -13,6 +13,8 @@ import shutil
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from functools import cache
 from pathlib import Path
 
@@ -148,19 +150,40 @@ class ContainerSandbox(Sandbox):
         )
         self._container.start()
 
-    def _sh(self, command: str) -> tuple[int, str, str]:
+    def _sh(self, command: str, timeout_s: float) -> tuple[int, str, str]:
         """Run ``command`` in the container, keeping stdout and stderr apart.
 
         testcontainers' own ``exec`` merges the two. A harness writes its
         stream to stdout and its warnings to stderr, so merging them puts a
         line of prose in the middle of the JSON and the parse fails on a
         run that was otherwise fine.
+
+        Docker's exec has no deadline of its own, so ``timeout_s`` is
+        enforced from this side and the container is killed to stop the
+        work. Wrapping the command in the image's ``timeout`` would be
+        neater, but would only work on images that ship one.
+
+        Returns the same ``(-1, "", "timed out")`` as the host sandbox when
+        the deadline passes, so the runner treats both backends alike.
         """
-        result = self._container.get_wrapped_container().exec_run(
-            ["sh", "-lc", command], demux=True
-        )
-        out, err = result.output
-        return result.exit_code, _text(out), _text(err)
+        container = self._container.get_wrapped_container()
+
+        def run() -> tuple[int, str, str]:
+            result = container.exec_run(["sh", "-lc", command], demux=True)
+            out, err = result.output
+            return int(result.exit_code), _text(out), _text(err)
+
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            return pool.submit(run).result(timeout=timeout_s)
+        except FutureTimeout:
+            with contextlib.suppress(Exception):
+                container.kill()
+            return -1, "", "timed out"
+        finally:
+            # The worker is still blocked in exec_run until the kill lands,
+            # so do not wait for it: the caller has its answer.
+            pool.shutdown(wait=False)
 
     def exec(self, argv: list[str], env: dict[str, str], timeout_s: float) -> tuple[int, str, str]:
         """Run inside the container with only the declared environment.
@@ -172,12 +195,12 @@ class ContainerSandbox(Sandbox):
         at a path nothing can write to. The container gets ``/work`` for
         both, which is the mount and is writable.
         """
-        del timeout_s
         declared = {key: value for key, value in env.items() if key not in HOST_ONLY}
         exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in declared.items())
         joined = shlex.join(argv)
         return self._sh(
-            f"cd {WORK} && export PATH={WORK}/bin:$PATH HOME={WORK} {exports} && {joined}"
+            f"cd {WORK} && export PATH={WORK}/bin:$PATH HOME={WORK} {exports} && {joined}",
+            timeout_s,
         )
 
     def cleanup(self) -> None:

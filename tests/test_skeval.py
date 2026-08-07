@@ -1019,6 +1019,33 @@ def test_the_answers_are_not_seeded_with_the_skill(tmp_path: Path) -> None:
 
 
 @needs_docker
+def test_a_hung_container_turn_times_out() -> None:
+    """Docker's exec has no deadline, so a stuck harness would hang forever.
+
+    Reports the same shape as the host sandbox, and comes back long before
+    the command it was given would have finished.
+    """
+    import time
+
+    from skeval.sandbox import create
+
+    box = create(
+        load_config(FAKE / "container.toml").harness["fake"],
+        load_skill(FAKE / "skill"),
+        backend="container",
+    )
+    started = time.monotonic()
+    try:
+        code, out, err = box.exec(["sleep", "120"], {}, 5.0)
+    finally:
+        box.cleanup()
+    waited = time.monotonic() - started
+
+    assert (code, out, err) == (-1, "", "timed out")
+    assert waited < 60, f"waited {waited:.0f}s; the deadline was 5s"
+
+
+@needs_docker
 def test_the_container_separates_stdout_from_stderr(tmp_path: Path) -> None:
     """Merged streams put a warning inside the JSON and the parse fails."""
     from skeval.sandbox import create
