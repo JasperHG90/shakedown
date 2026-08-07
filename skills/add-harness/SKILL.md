@@ -34,6 +34,7 @@ A harness qualifies if it can do these. Four are required.
 | 3 | emit machine-readable output with tool calls and text | yes | unusable |
 | 4 | continue a session | no | `inputs_resolved` reports `unsupported` |
 | 5 | run without a TTY | yes | unusable |
+| 6 | what else the model could see | reported only | nothing |
 
 Read the binary's `--help` and find the flag for each. What you are looking
 for, in the usual naming:

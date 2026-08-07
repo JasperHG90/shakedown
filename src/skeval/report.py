@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -185,8 +186,18 @@ class Report(BaseModel):
 
     @classmethod
     def merge(cls, shards: list[Path]) -> Report:
-        """Combine per-worker shards into one report."""
-        loaded = [cls.model_validate_json(s.read_text()) for s in sorted(shards)]
+        """Combine per-worker shards into one report.
+
+        A shard that will not parse is skipped rather than raised on. It
+        means one worker died mid-write; losing its runs is bad, and
+        losing every other worker's runs along with it is worse.
+        """
+        loaded = []
+        for shard in sorted(shards):
+            try:
+                loaded.append(cls.model_validate_json(shard.read_text()))
+            except ValueError:
+                warnings.warn(f"unreadable shard {shard.name}; its runs are missing", stacklevel=2)
         if not loaded:
             raise ValueError("no shards to merge")
         first = loaded[0]

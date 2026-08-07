@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""Scaffold a service from fixed templates. The deterministic half.
+
+Two subcommands. ``init`` lays down the three files a new service needs;
+``add-endpoint`` registers one route against a service that already exists.
+Both refuse rather than guess, so a skill that skipped a question fails
+loudly instead of writing a plausible file.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+SERVICE_YAML = """name: {name}
+owner: {owner}
+port: {port}
+endpoints: []
+"""
+
+README = """# {name}
+
+- **Owner:** {owner}
+- **Port:** {port}
+
+## Running
+
+```
+docker build -t {name} . && docker run -p {port}:{port} {name}
+```
+"""
+
+DOCKERFILE = """FROM python:3.12-slim
+WORKDIR /app
+COPY . .
+EXPOSE {port}
+CMD ["python", "-m", "{name}"]
+"""
+
+ENDPOINTS_HEADER = "# Endpoints\n\n| method | path |\n|---|---|\n"
+
+
+def init(args: argparse.Namespace) -> int:
+    """Write service.yaml, README.md, and Dockerfile. Refuse to overwrite."""
+    root = Path(args.dir)
+    root.mkdir(parents=True, exist_ok=True)
+    files = {
+        root / "service.yaml": SERVICE_YAML,
+        root / "README.md": README,
+        root / "Dockerfile": DOCKERFILE,
+    }
+    existing = [str(p) for p in files if p.exists()]
+    if existing:
+        print(f"refusing to overwrite: {', '.join(existing)}", file=sys.stderr)
+        return 3
+
+    for path, template in files.items():
+        path.write_text(template.format(name=args.name, owner=args.owner, port=args.port))
+    print(f"scaffolded {args.name} in {root}")
+    return 0
+
+
+def add_endpoint(args: argparse.Namespace) -> int:
+    """Append one route to service.yaml and to docs/endpoints.md."""
+    root = Path(args.dir)
+    service = root / "service.yaml"
+    if not service.is_file():
+        print("no service.yaml here; run `scaffoldctl init` first", file=sys.stderr)
+        return 4
+
+    method = args.method.upper()
+    spec = service.read_text().replace("endpoints: []\n", "endpoints:\n")
+    service.write_text(f"{spec}  - {method} {args.path}\n")
+
+    docs = root / "docs" / "endpoints.md"
+    docs.parent.mkdir(parents=True, exist_ok=True)
+    if not docs.exists():
+        docs.write_text(ENDPOINTS_HEADER)
+    with docs.open("a") as fh:
+        fh.write(f"| {method} | {args.path} |\n")
+
+    print(f"registered {method} {args.path}")
+    return 0
+
+
+def main() -> int:
+    """Dispatch to a subcommand and return its exit status."""
+    parser = argparse.ArgumentParser(prog="scaffoldctl")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    # On each subcommand, not the top-level parser: argparse does not carry
+    # a top-level option past the subcommand, so `init --dir X` would be an
+    # error and only `--dir X init` would work. Nobody writes it that way.
+    start = sub.add_parser("init", help="lay down a new service")
+    start.add_argument("--dir", default=".", help="where the service lives")
+    start.add_argument("--name", required=True)
+    start.add_argument("--owner", required=True)
+    start.add_argument("--port", required=True)
+    start.set_defaults(fn=init)
+
+    route = sub.add_parser("add-endpoint", help="register one route")
+    route.add_argument("--dir", default=".", help="where the service lives")
+    route.add_argument("--path", required=True)
+    route.add_argument("--method", required=True)
+    route.set_defaults(fn=add_endpoint)
+
+    args = parser.parse_args()
+    return int(args.fn(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

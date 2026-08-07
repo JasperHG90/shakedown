@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator, Iterator
+import os
+import shutil
+import tempfile
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -17,6 +20,8 @@ from skeval.sandbox import create
 
 #: Where the in-process report hangs, so the terminal hook can find it.
 REPORT = pytest.StashKey[Report]()
+#: This session's private shard directory.
+SHARDS = pytest.StashKey[Path]()
 #: The live spinner, and [done, total] scenarios.
 PROGRESS = pytest.StashKey[Spinner]()
 TALLY = pytest.StashKey[list[int]]()
@@ -35,7 +40,7 @@ def _say(config: pytest.Config, text: str) -> None:
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    """Start the spinner, when there is a terminal to animate.
+    """Clear last session's shards, and start the spinner if one is wanted.
 
     A run is minutes of silence otherwise: one scenario is a whole model
     round trip per turn. Capture has to be off for the animation to reach
@@ -92,8 +97,34 @@ def _worker_id(config: pytest.Config) -> str:
     return str(getattr(config, "workerinput", {}).get("workerid", ""))
 
 
+#: Passed to xdist workers, which inherit the controller's environment.
+SHARD_ENV = "SKEVAL_SHARD_DIR"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Give this session a private directory for its shards.
+
+    Deriving it from the report path put it next to the report, where a run
+    killed mid-flight left it behind for the next run to merge as if those
+    results were current, and where two runs in one directory consumed each
+    other's shards. A fresh temp directory per session cannot do either.
+
+    Created before xdist spawns its workers, so they inherit the path. Only
+    a worker reads what it inherited: any other child process, such as a
+    nested pytest, gets its own directory rather than writing into its
+    parent's and being merged into someone else's numbers.
+    """
+    inherited = os.environ.get(SHARD_ENV)
+    if _worker_id(config) and inherited:
+        config.stash[SHARDS] = Path(inherited)
+        return
+    fresh = tempfile.mkdtemp(prefix="skeval-shards-")
+    os.environ[SHARD_ENV] = fresh
+    config.stash[SHARDS] = Path(fresh)
+
+
 def _shard_dir(config: pytest.Config) -> Path:
-    return Path(str(config.getoption("--report"))).with_suffix(".shards")
+    return config.stash[SHARDS]
 
 
 def _config(pytest_config: pytest.Config) -> Config:
@@ -121,8 +152,8 @@ def skill(request: pytest.FixtureRequest) -> Skill:
 
 
 @pytest.fixture(scope="session")
-def report(request: pytest.FixtureRequest) -> Iterator[Report]:
-    """The report, written at session end."""
+def report(request: pytest.FixtureRequest) -> Report:
+    """The report, held in memory and sharded to disk as runs complete."""
     skill_under_test = _skill(request.config)
     built = Report(
         skill=skill_under_test.name,
@@ -130,15 +161,29 @@ def report(request: pytest.FixtureRequest) -> Iterator[Report]:
         isolated=request.config.getoption("--sandbox") == "container",
     )
     request.config.stash[REPORT] = built
-    yield built
+    return built
 
-    worker = _worker_id(request.config)
-    if worker:
-        # Runs are independent, so xdist spreads them across processes. Each
-        # worker writes a shard; the controller merges them at session end.
-        shards = _shard_dir(request.config)
-        shards.mkdir(parents=True, exist_ok=True)
-        (shards / f"{worker}.json").write_text(built.model_dump_json())
+
+def _shard(config: pytest.Config, built: Report) -> None:
+    """Write this worker's shard, if this process is a worker.
+
+    Runs are independent, so xdist spreads them across processes and each
+    worker keeps its own shard for the controller to merge. The write
+    happens after every run rather than at session teardown: a worker that
+    goes away without running its finalizers took its results with it, and
+    the report then under-counts a run that actually happened.
+    """
+    worker = _worker_id(config)
+    if not worker:
+        return
+    shards = _shard_dir(config)
+    shards.mkdir(parents=True, exist_ok=True)
+    # Rewritten after every run, so a half-written file is a live hazard,
+    # not a rare one. Write beside the target and rename: a reader sees the
+    # previous complete shard or the new one, never a truncated middle.
+    scratch = shards / f"{worker}.json.part"
+    scratch.write_text(built.model_dump_json())
+    os.replace(scratch, shards / f"{worker}.json")
 
 
 def _collect(config: pytest.Config) -> Report | None:
@@ -150,7 +195,7 @@ def _collect(config: pytest.Config) -> Report | None:
     merged = Report.merge(files)
     for file in files:
         file.unlink()
-    shards.rmdir()
+    shutil.rmtree(shards, ignore_errors=True)
     return merged
 
 
@@ -167,6 +212,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     if _worker_id(config):
         return
     built = _collect(config)
+    shutil.rmtree(config.stash[SHARDS], ignore_errors=True)
     if built is None or not built.runs:
         return
     path = built.write(Path(str(config.getoption("--report"))))
@@ -261,6 +307,8 @@ def conformance(
             ],
         )
     )
+
+    _shard(request.config, report)
 
     request.addfinalizer(box.cleanup)
     if spinner := _spinner(request.config):

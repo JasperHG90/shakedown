@@ -16,9 +16,21 @@ from abc import ABC, abstractmethod
 from functools import cache
 from pathlib import Path
 
-from skeval.models import Harness, Skill
+from skeval.models import CASES_NAME, Harness, Skill
 
 WORK = "/work"
+
+#: Files that live beside a skill for skeval's benefit, not the model's.
+#: Seeding them would hand the model the answers it is being measured on.
+NOT_THE_SKILL = (CASES_NAME, "README.md")
+
+#: Variables that describe the host. A container has its own.
+HOST_ONLY = frozenset({"PATH", "HOME"})
+
+
+def _text(chunk: bytes | None) -> str:
+    """Decode one half of a demuxed exec stream."""
+    return chunk.decode() if chunk else ""
 
 
 @cache
@@ -71,10 +83,20 @@ class Sandbox(ABC):
         """Release the sandbox."""
 
     def seed(self, harness: Harness, skill: Skill) -> None:
-        """Copy the skill where the harness discovers it, plus any bin/."""
+        """Copy the skill where the harness discovers it, plus any bin/.
+
+        Everything skeval keeps beside the skill is left out. ``cases.toml``
+        holds the replies to the withheld inputs and the exact strings each
+        artifact is checked for: a model that reads it can pass without
+        being asked anything, which is the one thing ``inputs_resolved``
+        claims to rule out. A README beside it gives the same game away in
+        prose.
+        """
         dest = self.path / harness.skills / skill.name
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(skill.path, dest, dirs_exist_ok=True)
+        shutil.copytree(
+            skill.path, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns(*NOT_THE_SKILL)
+        )
         if skill.bin_dir:
             shutil.copytree(skill.bin_dir, self.path / "bin", dirs_exist_ok=True)
 
@@ -127,16 +149,36 @@ class ContainerSandbox(Sandbox):
         self._container.start()
 
     def _sh(self, command: str) -> tuple[int, str, str]:
-        code, output = self._container.exec(["sh", "-lc", command])
-        text = output.decode() if isinstance(output, bytes) else str(output)
-        return code, text, ""
+        """Run ``command`` in the container, keeping stdout and stderr apart.
+
+        testcontainers' own ``exec`` merges the two. A harness writes its
+        stream to stdout and its warnings to stderr, so merging them puts a
+        line of prose in the middle of the JSON and the parse fails on a
+        run that was otherwise fine.
+        """
+        result = self._container.get_wrapped_container().exec_run(
+            ["sh", "-lc", command], demux=True
+        )
+        out, err = result.output
+        return result.exit_code, _text(out), _text(err)
 
     def exec(self, argv: list[str], env: dict[str, str], timeout_s: float) -> tuple[int, str, str]:
-        """Run inside the container with only the declared environment."""
+        """Run inside the container with only the declared environment.
+
+        ``PATH`` and ``HOME`` are not passed through. Both name host
+        directories the image does not have, and a single ``export`` takes
+        the last assignment for a name, so exporting them would replace the
+        container's own PATH — hiding the seeded ``bin/`` — and point HOME
+        at a path nothing can write to. The container gets ``/work`` for
+        both, which is the mount and is writable.
+        """
         del timeout_s
-        exports = " ".join(f"{k}={shlex.quote(v)}" for k, v in env.items())
+        declared = {key: value for key, value in env.items() if key not in HOST_ONLY}
+        exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in declared.items())
         joined = shlex.join(argv)
-        return self._sh(f"cd {WORK} && export PATH={WORK}/bin:$PATH {exports} && {joined}")
+        return self._sh(
+            f"cd {WORK} && export PATH={WORK}/bin:$PATH HOME={WORK} {exports} && {joined}"
+        )
 
     def cleanup(self) -> None:
         """Stop the container and remove the mounted directory."""

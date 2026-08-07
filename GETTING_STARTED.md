@@ -354,8 +354,8 @@ skeval summary skeval-report.json
 
 # Adding your own harness
 
-Any binary qualifies if it can do five things. `doctor` verifies each by
-running them.
+A harness qualifies on five prerequisites, four of them required.
+`doctor` decides each by running it, and prints a sixth row for context.
 
 | # | prerequisite | required |
 |---|---|---|
@@ -364,9 +364,11 @@ running them.
 | 3 | machine-readable output with tool calls and text | yes |
 | 4 | continue a session | no |
 | 5 | runs without a TTY | yes |
+| 6 | what else the model could see | reported only |
 
 Missing 4 means the `inputs_resolved` check reports `unsupported`. It is
-never a failure.
+never a failure. Row 6 cannot fail either: it tells you which other skills
+were in scope, which on the `tmp` sandbox is usually your own.
 
 ## The block
 
@@ -388,7 +390,7 @@ skills = ".my-agent/skills"
 activation_tool = "Skill"
 
 image   = "ghcr.io/you/my-agent:1.2.3"
-install = "npm i -g my-agent@1.2.3"
+# ...or build one: dockerfile = "examples/docker/my-agent.Dockerfile"
 
 [harness.my-harness.env]
 MY_AGENT_TOKEN = "${MY_AGENT_TOKEN}"

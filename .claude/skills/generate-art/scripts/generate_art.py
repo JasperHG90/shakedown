@@ -64,9 +64,8 @@ DEFAULT_CAST_DIR = Path("assets/portraits")
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Generate artwork with Nano Banana (Pro or Flash)."
-    )
+    """Parse the command line."""
+    p = argparse.ArgumentParser(description="Generate artwork with Nano Banana (Pro or Flash).")
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--prompt", help="Inline text prompt.")
     src.add_argument("--prompt-file", type=Path, help="Read the prompt from a file.")
@@ -75,12 +74,13 @@ def parse_args() -> argparse.Namespace:
         "--banana",
         choices=sorted(BANANA_MODELS),
         default=DEFAULT_BANANA,
-        help=f"Banana model: 'pro' (Gemini 3 Pro Image) or 'flash' (Gemini 2.5 Flash Image). Default: {DEFAULT_BANANA}.",
+        help=(
+            "Banana model: 'pro' (Gemini 3 Pro Image) or 'flash' (Gemini 2.5 Flash Image). "
+            f"Default: {DEFAULT_BANANA}."
+        ),
     )
     p.add_argument("--model", help="Explicit model id; overrides --banana.")
-    p.add_argument(
-        "--aspect", default="16:9", choices=sorted(VALID_ASPECTS), help="Aspect ratio."
-    )
+    p.add_argument("--aspect", default="16:9", choices=sorted(VALID_ASPECTS), help="Aspect ratio.")
     p.add_argument(
         "--size",
         default="2K",
@@ -127,13 +127,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_cast(args: argparse.Namespace) -> list[Path]:
+    """Pick the portrait reference images named by ``--cast``."""
     if not args.cast:
         return []
     if not args.cast_dir.is_dir():
         sys.exit(f"error: --cast-dir not found: {args.cast_dir}")
-    portraits = sorted(
-        p for p in args.cast_dir.iterdir() if p.suffix.lower() in IMAGE_SUFFIXES
-    )
+    portraits = sorted(p for p in args.cast_dir.iterdir() if p.suffix.lower() in IMAGE_SUFFIXES)
     if not portraits:
         sys.exit(f"error: no portraits in {args.cast_dir}")
     if args.cast == "random":
@@ -142,15 +141,14 @@ def resolve_cast(args: argparse.Namespace) -> list[Path]:
         matches = [p for p in portraits if p.stem == args.cast]
         if not matches:
             names = ", ".join(p.stem for p in portraits)
-            sys.exit(
-                f"error: no portrait '{args.cast}' in {args.cast_dir}\navailable: {names}"
-            )
+            sys.exit(f"error: no portrait '{args.cast}' in {args.cast_dir}\navailable: {names}")
         choice = matches[0]
     print(f"cast: {choice.stem} ({choice.name})", file=sys.stderr)
     return [choice]
 
 
 def resolve_style(args: argparse.Namespace) -> str | None:
+    """Read the style preset, or return ``None`` when none was asked for."""
     if args.style_file:
         path = args.style_file
     elif args.style:
@@ -158,12 +156,8 @@ def resolve_style(args: argparse.Namespace) -> str | None:
     else:
         return None
     if not path.exists():
-        available = (
-            ", ".join(sorted(p.stem for p in args.styles_dir.glob("*.md"))) or "(none)"
-        )
-        sys.exit(
-            f"error: style preset not found: {path}\navailable presets: {available}"
-        )
+        available = ", ".join(sorted(p.stem for p in args.styles_dir.glob("*.md"))) or "(none)"
+        sys.exit(f"error: style preset not found: {path}\navailable presets: {available}")
     text = path.read_text().strip()
     if not text:
         sys.exit(f"error: style preset is empty: {path}")
@@ -171,6 +165,7 @@ def resolve_style(args: argparse.Namespace) -> str | None:
 
 
 def load_prompt(args: argparse.Namespace) -> str:
+    """Read the prompt and append the style preset, if there is one."""
     text = args.prompt_file.read_text() if args.prompt_file else args.prompt
     text = text.strip()
     if not text:
@@ -182,6 +177,7 @@ def load_prompt(args: argparse.Namespace) -> str:
 
 
 def build_contents(prompt: str, refs: list[Path]) -> list:
+    """Build the request body: the reference images, then the prompt."""
     contents: list = []
     for ref in refs:
         if not ref.exists():
@@ -192,6 +188,7 @@ def build_contents(prompt: str, refs: list[Path]) -> list:
 
 
 def extract_image(response) -> Image.Image:
+    """Return the generated image, exiting when the response carries none."""
     for part in response.parts or []:
         if getattr(part, "text", None):
             print(part.text, file=sys.stderr)
@@ -202,6 +199,7 @@ def extract_image(response) -> Image.Image:
 
 
 def main() -> None:
+    """Generate one image and write it to ``--out``."""
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         sys.exit("error: set GEMINI_API_KEY (or GOOGLE_API_KEY) in the environment")

@@ -183,6 +183,10 @@ and each is verified empirically before anyone trusts a measurement.
 | 4 | continue a session (`--resume`, `--session-id`) | no | check 3 `unsupported` |
 | 5 | runs without a TTY | yes | unusable |
 
+`doctor` prints a sixth row, environment visibility. It is not a
+prerequisite and cannot fail: it reports which other skills the model
+could see, which on the `tmp` sandbox is usually your own.
+
 Prerequisite 4 is optional on purpose. A harness must never *fail* a
 dimension it cannot physically support: it is reported as unsupported with
 a reason, so the other two checks stay comparable across everything.
@@ -233,8 +237,7 @@ resume = [
 ]
 skills = ".claude/skills"
 activation_tool = "Skill"
-image   = "node:22-slim"
-install = "npm i -g @anthropic-ai/claude-code@2.1.220"
+image   = "node:22-slim"   # or dockerfile = "examples/docker/claude-code.Dockerfile"
 
 [harness.claude-code.env]
 HOME = "${HOME}"

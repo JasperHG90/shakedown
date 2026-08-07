@@ -875,6 +875,37 @@ def test_end_to_end_parallel_matches_serial(tmp_path: Path) -> None:
     assert serial["scores"] == parallel["scores"]
 
 
+def test_shards_from_an_interrupted_run_are_not_counted(tmp_path: Path) -> None:
+    """Otherwise a killed run's numbers reappear inside the next one's."""
+    where = tmp_path / "a"
+    where.mkdir(parents=True)
+    stale = (where / "report.json").with_suffix(".shards")
+    stale.mkdir()
+    (stale / "gw99.json").write_text(
+        Report(skill="ghost", sandbox="tmp", isolated=False)
+        .model_copy(
+            update={
+                "runs": [
+                    RunRecord(
+                        target="t",
+                        model="m",
+                        case="ghost-case",
+                        run=0,
+                        prompt="p",
+                        turns=1,
+                        results=[Result(name="skill_fired", status=Status.PASS, reason="r")],
+                    )
+                ]
+            }
+        )
+        .model_dump_json()
+    )
+
+    _, report = _e2e(where, "-n", "4")
+    assert len(report["runs"]) == 6
+    assert "ghost-case" not in {r["case"] for r in report["runs"]}
+
+
 def test_a_case_without_a_tool_is_unsupported_not_failed(tmp_path: Path) -> None:
     """Plenty of skills write the artifact themselves and shell out to nothing.
 
@@ -965,3 +996,238 @@ def test_container_backend_runs_and_isolates(tmp_path: Path, config: str) -> Non
     turns = {r["case"]: r["turns"] for r in payload["runs"]}
     assert turns["missing-both"] == 3
     assert {r["name"]: r["status"] for r in payload["runs"][0]["results"]}["skill_fired"] == "pass"
+
+
+def test_the_answers_are_not_seeded_with_the_skill(tmp_path: Path) -> None:
+    """`cases.toml` holds the replies and the expected strings.
+
+    A model that reads it can satisfy `inputs_resolved` without ever being
+    asked, which is the one thing that check claims to prove.
+    """
+    from skeval.sandbox import TempSandbox
+
+    box = TempSandbox(harness(skills=".x/skills"))
+    try:
+        box.seed(harness(skills=".x/skills"), load_skill(REPO / "examples/scaffold-service"))
+        seeded = box.path / ".x/skills/scaffold-service"
+        assert (seeded / "SKILL.md").is_file(), "the skill itself still has to arrive"
+        assert not (seeded / "cases.toml").exists()
+        assert not (seeded / "README.md").exists()
+        assert (box.path / "bin/scaffoldctl").is_file()
+    finally:
+        box.cleanup()
+
+
+@needs_docker
+def test_the_container_separates_stdout_from_stderr(tmp_path: Path) -> None:
+    """Merged streams put a warning inside the JSON and the parse fails."""
+    from skeval.sandbox import create
+
+    box = create(
+        load_config(FAKE / "container.toml").harness["fake"],
+        load_skill(FAKE / "skill"),
+        backend="container",
+    )
+    try:
+        _, out, err = box.exec(["sh", "-c", "echo the-stream; echo a-warning >&2"], {}, 60.0)
+    finally:
+        box.cleanup()
+
+    assert out.strip() == "the-stream"
+    assert "a-warning" in err
+    assert "a-warning" not in out, "a warning in the stream makes it unparseable"
+
+
+@needs_docker
+def test_the_container_does_not_inherit_the_host_home(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`HOME = "${HOME}"` expands to a path the image does not have."""
+    from skeval.sandbox import WORK, create
+
+    monkeypatch.setenv("FAKE_COUNTER", "/work/count.txt")
+    declared = load_config(FAKE / "container.toml").harness["fake"]
+    box = create(declared, load_skill(FAKE / "skill"), backend="container")
+    try:
+        leaky = {**declared.environment(), "HOME": "/Users/nobody"}
+        _, out, _ = box.exec(["sh", "-c", "echo HOME=$HOME; ls -d $HOME"], leaky, 60.0)
+    finally:
+        box.cleanup()
+
+    assert f"HOME={WORK}" in out, out
+    assert "/Users/nobody" not in out, out
+
+
+@needs_docker
+def test_the_container_keeps_its_own_path_and_finds_the_seeded_bin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The host's PATH names directories the image does not have.
+
+    Exporting it would also shadow the seeded ``bin/``, because one
+    ``export`` takes the last assignment for a name. The other container
+    test cannot catch that: its config invokes the harness by absolute
+    path, so PATH never has to be right.
+    """
+    from skeval.sandbox import create
+
+    monkeypatch.setenv("FAKE_COUNTER", "/work/count.txt")
+    harness_under_test = load_config(FAKE / "container.toml").harness["fake"]
+    box = create(harness_under_test, load_skill(FAKE / "skill"), backend="container")
+    try:
+        leaky = {**harness_under_test.environment(), "PATH": "/host-only-does-not-exist"}
+        _, out, _ = box.exec(["sh", "-c", "command -v agent; echo PATH=$PATH"], leaky, 60.0)
+    finally:
+        box.cleanup()
+
+    assert "/work/bin/agent" in out, out
+    assert "/host-only-does-not-exist" not in out, out
+    assert "/usr/bin" in out, "the image's own PATH survived"
+
+
+@pytest.mark.parametrize("width", [1, 8, 14, 16, 17, 18, 40, 56, 80, 120, 200])
+def test_the_banner_never_wraps_onto_the_logo(width: int) -> None:
+    """A wrapped status line would land on top of the mark beside it.
+
+    Measured in cells, which is what a terminal wraps on.
+    """
+    from rich.cells import cell_len
+
+    from skeval.banner import banner
+
+    for line in banner(width).plain.splitlines():
+        assert cell_len(line) <= width, line
+
+
+def test_a_wide_character_path_is_measured_in_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A CJK path is half as many characters as columns, and would wrap."""
+    from rich.cells import cell_len
+
+    from skeval.banner import banner
+
+    wide = tmp_path / ("日本語のディレクトリ" * 3)
+    wide.mkdir()
+    monkeypatch.chdir(wide)
+
+    for line in banner(80).plain.splitlines():
+        assert cell_len(line) <= 80, line
+
+
+def test_the_banner_survives_a_deleted_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A build step that removes the directory you are in must not crash skeval."""
+    import os
+
+    from skeval.banner import banner
+
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    os.rmdir(gone)
+
+    assert "skeval v" in banner(80).plain
+
+
+def test_a_broken_config_is_not_reported_as_a_missing_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`skeval init` is the wrong advice when the config exists but will not load."""
+    from skeval.banner import banner
+
+    (tmp_path / "skeval.toml").write_text("this is not toml [[[\n")
+    monkeypatch.chdir(tmp_path)
+
+    shown = banner(200).plain
+    assert "no skeval.toml" not in shown
+    assert "not loadable" in shown
+
+
+def test_the_banner_shows_the_version_the_tagline_and_where_it_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The point of the banner is answering "what am I about to run, and where"."""
+    from skeval.banner import banner, version
+
+    monkeypatch.chdir(tmp_path)
+    shown = banner(200).plain
+
+    assert f"skeval v{version()}" in shown
+    assert "Harness conformance testing for agent skills." in shown
+    # No config here, so the banner has to say so rather than stay silent.
+    assert "no skeval.toml" in shown
+    assert str(tmp_path) in shown
+
+
+def test_the_banner_counts_the_matrix_it_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    """From a configured directory it reports the config, not the missing one."""
+    from skeval.banner import banner
+
+    monkeypatch.chdir(FAKE)
+    shown = banner(200).plain
+    assert "no skeval.toml" not in shown
+    assert "skeval.toml" in shown
+    assert "harness" in shown and "target" in shown
+
+
+def test_the_banner_stays_out_of_a_pipe() -> None:
+    """Redirected output is read by a script or a log; block art is noise there."""
+    from rich.console import Console
+
+    from skeval.banner import print_banner
+
+    piped = Console(force_terminal=False, width=100)
+    with piped.capture() as capture:
+        print_banner(piped)
+    assert capture.get() == ""
+
+    terminal = Console(force_terminal=True, width=100)
+    with terminal.capture() as capture:
+        print_banner(terminal)
+    assert "skeval v" in capture.get()
+
+
+def test_a_bare_skeval_prints_the_help_and_succeeds() -> None:
+    """`skeval` with no arguments is a question, not a mistake."""
+    from typer.testing import CliRunner
+
+    from skeval.cli import app
+
+    # The real entrypoint takes its name from argv[0]; CliRunner would call
+    # the root group "root" unless told what it is invoked as.
+    done = CliRunner().invoke(app, [], prog_name="skeval")
+    assert done.exit_code == 0
+    assert "Usage: skeval" in done.output
+    for command in ("run", "init", "summary", "doctor"):
+        assert command in done.output
+
+
+def test_a_bare_skeval_leads_with_the_banner_in_a_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The banner is the point of a bare `skeval`, so pin it to the command.
+
+    CliRunner's stdout is a pipe, so without forcing a terminal the banner
+    suppresses itself and this command has no test at all.
+    """
+    from rich.console import Console
+    from typer.testing import CliRunner
+
+    from skeval import cli
+
+    monkeypatch.setattr(cli, "console", Console(force_terminal=True, width=100))
+    output = CliRunner().invoke(cli.app, [], prog_name="skeval").output
+    assert "skeval v" in output
+    assert output.index("skeval v") < output.index("Usage: skeval")
+
+
+def test_version_prints_just_the_version() -> None:
+    """A version flag feeds a script, so it prints the number and nothing else."""
+    from typer.testing import CliRunner
+
+    from skeval.banner import version
+    from skeval.cli import app
+
+    done = CliRunner().invoke(app, ["--version"])
+    assert done.exit_code == 0
+    assert done.output.strip() == version()

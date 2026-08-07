@@ -1,0 +1,66 @@
+# Three cases over one skill: everything supplied, facts withheld, and a
+# multi-step run. Each declares only the checks that apply to it.
+
+# Nothing is missing, so there is no question to ask. Three artifacts, each
+# with content that could only come from the CLI's template.
+[[case]]
+name   = "fully-specified"
+prompt = """
+Scaffold a new service. Name: billing-api. Owner: platform-team. Port: 9000.
+"""
+tool   = "scaffoldctl"
+
+[[case.artifacts]]
+path     = "service.yaml"
+contains = ["billing-api", "platform-team", "9000"]
+
+[[case.artifacts]]
+path     = "README.md"
+contains = ["billing-api", "platform-team"]
+
+[[case.artifacts]]
+path     = "Dockerfile"
+contains = ["EXPOSE 9000"]
+
+# Two of the three facts are withheld. Both replies have to reach the
+# artifact, which is only possible if the harness asked twice, accepted both
+# answers, and carried them into one CLI call.
+[[case]]
+name   = "withholds-owner-and-port"
+prompt = "Scaffold a new service called billing-api."
+tool   = "scaffoldctl"
+
+[[case.artifacts]]
+path     = "service.yaml"
+contains = ["billing-api", "payments-team", "7100"]
+
+[[case.artifacts]]
+path     = "README.md"
+contains = ["payments-team", "7100"]
+
+[[case.answers]]
+match = "(?i)\\bowner\\b|who owns|who is responsible"
+reply = "payments-team"
+
+[[case.answers]]
+match = "(?i)\\bport\\b|listen on"
+reply = "7100"
+
+# Three CLI calls in one turn: init, then add-endpoint twice. The endpoints
+# doc exists only if the skill ran the second subcommand, so its content is
+# the proof the skill did not stop after scaffolding.
+[[case]]
+name   = "scaffold-then-add-endpoints"
+prompt = """
+Scaffold a service named billing-api, owned by platform-team, on port 9000.
+It exposes GET /health and POST /invoices.
+"""
+tool   = "scaffoldctl"
+
+[[case.artifacts]]
+path     = "service.yaml"
+contains = ["billing-api", "GET /health", "POST /invoices"]
+
+[[case.artifacts]]
+path     = "docs/endpoints.md"
+contains = ["| GET | /health |", "| POST | /invoices |"]

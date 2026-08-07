@@ -56,6 +56,7 @@ def parse_bg(spec: str, img: Image.Image) -> tuple[int, int, int]:
 
 
 def dist(p: tuple[int, ...], bg: tuple[int, int, int]) -> float:
+    """Euclidean distance between a pixel and the background color."""
     return ((p[0] - bg[0]) ** 2 + (p[1] - bg[1]) ** 2 + (p[2] - bg[2]) ** 2) ** 0.5
 
 
@@ -131,6 +132,7 @@ def defringe(img: Image.Image, bg, tol: float) -> None:
 
 
 def main() -> None:
+    """Strip the background of one image and write the result."""
     ap = argparse.ArgumentParser(description="Remove a solid background to alpha.")
     ap.add_argument("--in", dest="src", required=True, help="input image path")
     ap.add_argument("--out", dest="out", required=True, help="output PNG path")
@@ -195,7 +197,7 @@ def main() -> None:
 
     if args.pad > 0:
         cw, ch = img.size
-        pad = int(round(ch * args.pad))
+        pad = round(ch * args.pad)
         canvas = Image.new("RGBA", (cw + 2 * pad, ch + 2 * pad), (0, 0, 0, 0))
         canvas.paste(img, (pad, pad))
         img = canvas

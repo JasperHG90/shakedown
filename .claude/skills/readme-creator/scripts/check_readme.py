@@ -55,6 +55,7 @@ def check_section_order(text: str) -> tuple[bool, str]:
 
 
 def check_install_codeblock(text: str) -> tuple[bool, str]:
+    """Check that the install section shows a fenced command."""
     if re.search(r"(?i)^#{1,2}\s+(install|installation|setup)", text, re.MULTILINE):
         match = re.search(
             r"(?i)^#{1,2}\s+(install|installation|setup).*?(```+\w*\n.*?)\n```+",
@@ -84,9 +85,7 @@ def check_heading_hierarchy(text: str) -> tuple[bool, list[str]]:
         level = len(match.group(1))
         line_no = text[: match.start()].count("\n") + 1
         if prev and level > prev + 1:
-            warnings.append(
-                f"Heading level jumps from {prev} to {level} at line {line_no}."
-            )
+            warnings.append(f"Heading level jumps from {prev} to {level} at line {line_no}.")
         prev = level
     return len(warnings) == 0, warnings
 
@@ -116,6 +115,7 @@ def check_jargon(text: str) -> tuple[bool, list[str]]:
 
 
 def main() -> int:
+    """Run every check and report what failed."""
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} <README.md>", file=sys.stderr)
         return 2

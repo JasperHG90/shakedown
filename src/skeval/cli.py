@@ -16,10 +16,29 @@ from skeval.report import REPORT_NAME
 if TYPE_CHECKING:
     from skeval.doctor import Diagnosis
 
-app = typer.Typer(
-    add_completion=False, help="Harness conformance testing for agent skills.", no_args_is_help=True
-)
+# No no_args_is_help: click would print the help and exit before the callback
+# runs, and the banner would never appear.
+app = typer.Typer(add_completion=False)
 TESTS = Path(__file__).parent / "conformance.py"
+
+
+@app.callback(invoke_without_command=True)
+def root(
+    ctx: typer.Context,
+    version: Annotated[bool, typer.Option("--version", help="print the version and exit")] = False,
+) -> None:
+    """Harness conformance testing for agent skills."""
+    from skeval import banner
+
+    if version:
+        print(banner.version())
+        raise typer.Exit(0)
+    if ctx.invoked_subcommand is None:
+        banner.print_banner(console)
+        # Echoed rather than rich-printed: the help text is click's, and
+        # square brackets in it are not markup.
+        typer.echo(ctx.get_help())
+        raise typer.Exit(0)
 
 
 @app.command()
