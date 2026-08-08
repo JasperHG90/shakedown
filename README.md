@@ -130,7 +130,9 @@ Claude Code, Gemini CLI, and Claude Code pointed at Ollama Cloud through a
 gateway. The third names a private host and wants `BIFROST_CC_VIRTUAL_KEY`,
 and a declared variable that is unset is an error rather than an empty
 string, so leaving it in fails a third of the matrix for everyone but its
-author. Delete the targets you cannot reach.
+author. Delete the targets you cannot reach. The Claude Code block declares
+`CLAUDE_CODE_OAUTH_TOKEN` the same way, so either export one with `claude
+setup-token` or comment that line out.
 
 ```bash
 uv sync
@@ -139,18 +141,19 @@ uv run shakedown doctor                   # is the harness usable? spends a litt
 uv run shakedown case run examples/write-plan  # the matrix. spends money.
 ```
 
-Then point it at your own skill:
+Then point it at your own skill, from your own repository:
 
-`init` writes no skill, because yours already exists. To write the cases
-for it, the bundled [`create-cases`](skills/create-cases/SKILL.md) skill
-reads your skill, drafts cases for the three checks, writes any fixtures
-they need, and offers to run them.
+`init` writes no skill, because yours already exists, and it refuses to
+overwrite a `shakedown.toml` already there. To write the cases for it, the
+bundled [`create-cases`](skills/create-cases/SKILL.md) skill reads your
+skill, drafts cases for the three checks, writes any fixtures they need,
+and offers to run them.
 
 ```bash
-uv run shakedown init --harness claude-code    # a config, and shakedowns/ to put cases in
-# …then write shakedowns/<slug>.cases.toml, by hand or with create-cases
-uv run shakedown case validate shakedowns/my-skill.cases.toml   # free
-uv run shakedown case run ./my-skill --repeat 5 -j 5
+shakedown init --harness claude-code    # a config, and shakedowns/ to put cases in
+# …then write shakedowns/my-skill.cases.toml, by hand or with create-cases
+shakedown case validate shakedowns/my-skill.cases.toml   # free
+shakedown case run ./my-skill --repeat 5 -j 5
 ```
 
 The skill under test is a path, and nothing about it is configured anywhere
@@ -176,9 +179,11 @@ qualifies
 ```
 
 `shakedown case run` executes the matrix and prints a pass rate per target and
-dimension, plus a warning when the sandbox was not isolated:
+dimension, plus a warning when the sandbox was not isolated. The recording
+below was made before the command was renamed, so the line it types is the
+old `shakedown run`. The table below it is what `case run` prints today:
 
-![the scaffold-service example measured against the claude-code harness, printing a scores table where every dimension passes](assets/run.gif)
+![the scaffold-service example measured against the claude-code harness, printing a scores table where every dimension passes; recorded before the rename, so the typed command reads shakedown run](assets/run.gif)
 
 Every run also writes `shakedown-report.json` with the per-run detail
 behind those numbers, including the argv, the tool calls, and the kept
@@ -187,13 +192,16 @@ markdown for a PR comment.
 
 ## Examples
 
-Two skills and the images they can run in, all runnable as-is:
+Three skills and the images they can run in, all runnable as-is:
 
 - [`examples/write-plan`](examples/write-plan) — the smallest useful shape.
   One artifact, two cases, one withheld fact.
 - [`examples/scaffold-service`](examples/scaffold-service) — three cases,
   three artifacts with content expectations, two withheld facts, and a case
   that needs three CLI calls in a row.
+- [`examples/register-service`](examples/register-service) — a skill whose
+  job has side effects: it clones a repository and opens a pull request.
+  Its cases supply a `gh` that records those calls instead of making them.
 - [`examples/docker`](examples/docker) — the images the `container` sandbox
   builds from, and what has to go in one.
 
@@ -224,10 +232,13 @@ Getting the canary call back at all is only possible if the harness ran
 headless, discovered the skill, surfaced it to the model, followed it, and
 emitted parseable output.
 
-Verified so far: **Claude Code** and **Gemini CLI**. The two disagree about
-almost everything — flags, where skills live, what the activation tool is
-called, whether records are nested — and none of that reaches the skill
-under test.
+Verified so far: **Claude Code**, **Gemini CLI**, **opencode** and
+**Hermes**, all four of which pass `doctor`. They disagree about almost
+everything — flags, where skills live, what the activation tool is called,
+whether records are nested, whether there is a stream to read at all — and
+none of that reaches the skill under test. The last two carry no
+`[[matrix]]` entry, so they do not run by default; adding one is all it
+takes.
 
 Claude Code also talks to anything Anthropic-shaped, so a gateway in front
 of open models makes them targets too. That is what the `ollama-cloud` row
