@@ -12,3 +12,6 @@ shakedown-report.json
 
 # The vendored hook script imports as a module during tests.
 plugins/**/__pycache__/
+
+# Pasted screenshots land here; they are not part of the project.
+image*.png
