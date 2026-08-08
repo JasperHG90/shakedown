@@ -91,17 +91,30 @@ there is one, the remedy.
 ## `shakedown init`
 
 ```
-shakedown init --harness NAME [OPTIONS]
+shakedown init [OPTIONS]
 ```
 
-Writes a `shakedown.toml` describing one harness, and the directory cases
-will live in. It writes no skill: the skill under test is yours and already
-exists.
+Writes a `shakedown.toml` and the directory cases will live in. It writes
+no skill: the skill under test is yours and already exists.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--harness` | `claude-code`, `gemini-cli`, `opencode` | required | Which harness to describe |
+| `--harness` | `claude-code`, `gemini-cli`, `opencode` | none | A harness to describe. Repeat for several |
 | `--config` | path | `shakedown.toml` | Where to write the config |
+
+Name none, one, or several:
+
+```bash
+shakedown init                                            # a stub, no harness yet
+shakedown init --harness claude-code
+shakedown init --harness claude-code --harness gemini-cli
+```
+
+A config with no harness still parses, so the free commands keep working
+and you can choose later; `doctor` says there is nothing to check rather
+than reporting success. Every name is checked before anything is written,
+so a typo in the second `--harness` does not leave a config holding only
+the first, and a repeated name is written once.
 
 The cases directory is always `shakedowns/`, beside the config, and is not
 configurable: [discovery](cases.md#where-it-lives) looks for that name and

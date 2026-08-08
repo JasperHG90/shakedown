@@ -15,4 +15,6 @@ RUN apt-get update \
 
 RUN pip install --no-cache-dir hermes-agent==${HERMES_VERSION}
 
+# Convenience only: shakedown cds here itself, and sets HOME and PATH,
+# so an image that omits this still works.
 WORKDIR /work

@@ -1,4 +1,5 @@
-"""`shakedown init`: a config for one harness, and somewhere to put cases.
+"""`shakedown init`: a config for the harnesses you name, and somewhere to
+put cases.
 
 It writes no skill. The skill under test is yours and already exists; what
 a fresh repository is missing is the harness description and the directory
@@ -8,6 +9,7 @@ measured a scaffold nobody shipped.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from shakedown.models import CASES_DIR
@@ -15,6 +17,15 @@ from shakedown.models import CASES_DIR
 _HEADER = """\
 # Harnesses only. The skill under test is a path given to the entrypoint,
 # and its cases live in `{cases_dir}/<slug>.cases.toml`.
+"""
+
+#: What a config says when no harness was chosen. It parses, so `case
+#: validate` and the rest still work; the commands that need a harness say
+#: what is missing rather than failing on a file that will not load.
+_NO_HARNESS = """\
+# No harness yet. Add one with `shakedown init --harness <name>` in a fresh
+# directory to see a worked block, or write your own with the `add-harness`
+# skill. Known to `init`: {known}.
 """
 
 CLAUDE_CODE = """\
@@ -44,6 +55,9 @@ activation_tool = "Skill"
 #   dockerfile = "docker/claude-code.Dockerfile"
 
 [harness.claude-code.env]
+# `tmp` only: your own home, which is what makes that sandbox fast and
+# not isolated. A container ignores it and sets its own HOME inside the
+# workspace.
 HOME = "${HOME}"
 # In a container nothing is inherited, and on macOS a subscription login
 # lives in the Keychain rather than under $HOME. Mint a token instead:
@@ -83,6 +97,9 @@ activation_tool = "activate_skill"
 #   dockerfile = "docker/gemini-cli.Dockerfile"
 
 [harness.gemini-cli.env]
+# `tmp` only: your own home, which is what makes that sandbox fast and
+# not isolated. A container ignores it and sets its own HOME inside the
+# workspace.
 HOME = "${HOME}"
 
 # Flat records, not blocks nested under a message. Leaving `container`
@@ -125,6 +142,9 @@ activation_tool = "skill"
 #   dockerfile = "docker/opencode.Dockerfile"
 
 [harness.opencode.env]
+# `tmp` only: your own home, which is what makes that sandbox fast and
+# not isolated. A container ignores it and sets its own HOME inside the
+# workspace.
 HOME = "${HOME}"
 
 # The call is a top-level record, but its name and arguments sit under a
@@ -147,8 +167,14 @@ HARNESSES = {
 }
 
 
-def scaffold(config: Path, harness: str) -> list[Path]:
+def scaffold(config: Path, harnesses: Sequence[str] = ()) -> list[Path]:
     """Write the config and the cases directory. Refuses to overwrite.
+
+    Any number of harnesses, including none. None is a real starting point:
+    the config still parses, so the free commands work, and you add a
+    harness when you know which one you are shipping to. Several is the
+    normal end state, since measuring one harness answers nothing about
+    the next.
 
     The cases directory is always `shakedowns/`, beside the config, and is
     not configurable: `find_cases` looks for that name and nothing else, so
@@ -159,12 +185,25 @@ def scaffold(config: Path, harness: str) -> list[Path]:
     not a thing git records, and a `shakedowns/` that vanishes takes the
     convention with it.
     """
-    if harness not in HARNESSES:
-        known = ", ".join(HARNESSES)
-        raise ValueError(f"unknown harness {harness!r}; choose one of: {known}")
+    # A bare string is a sequence of characters, so it would be read as one
+    # unknown harness per letter. Refuse rather than report that.
+    if isinstance(harnesses, str):
+        raise TypeError(f"harnesses is a list of names, not {harnesses!r}")
+
+    known = ", ".join(HARNESSES)
+    # Every name checked before anything is written, so a typo in the
+    # second `--harness` does not leave a config holding only the first.
+    if unknown := [name for name in harnesses if name not in HARNESSES]:
+        named = ", ".join(repr(name) for name in unknown)
+        raise ValueError(f"unknown harness {named}; choose from: {known}")
+
+    # Deduplicated, in the order given: two blocks for one harness is a
+    # config that will not load.
+    chosen = list(dict.fromkeys(harnesses))
+    body = "\n".join(HARNESSES[name] for name in chosen) or _NO_HARNESS.format(known=known)
 
     files = {
-        config: _HEADER.format(cases_dir=CASES_DIR) + "\n" + HARNESSES[harness],
+        config: _HEADER.format(cases_dir=CASES_DIR) + "\n" + body,
         config.parent / CASES_DIR / ".gitkeep": "",
     }
     if clashes := sorted(str(p) for p in files if p.exists()):

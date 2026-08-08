@@ -34,14 +34,40 @@ in Claude Code, `--safe-mode`, also turns off skills.
 
 ## What goes in one
 
-Three things, and keep them in step across images:
+Two things, and keep them in step across images:
 
 1. **The harness CLI, pinned.** Its version is part of what you measure.
-2. **Whatever your skills need at runtime** — `python3`, `git`, and so on.
-   A skill that finds Python in one image and not another measures the
-   image, not the harness.
-3. **`WORKDIR /work`.** shakedown mounts the sandbox there and puts the
-   skill's `bin/` on `PATH` ahead of everything else.
+2. **Whatever your skills need at runtime** — `bash`, `python3`, `git`, and
+   whatever their own CLIs call. A skill that finds Python in one image and
+   not another measures the image, not the harness.
+
+## What does not go in one
+
+The workspace is shakedown's to arrange, and every command it runs starts
+with:
+
+```sh
+mkdir -p /work/.home && cd /work && export PATH=/work/bin:$PATH HOME=/work/.home …
+```
+
+So `WORKDIR`, `ENV HOME` and `ENV PATH` are all overridden and none of them
+are needed. The shipped images set `WORKDIR /work` because it makes poking
+around by hand pleasant, not because anything requires it.
+
+`HOME` is deliberately a subdirectory of the mount rather than the mount
+itself. A harness discovers project skills under `<cwd>/.claude`, so a HOME
+equal to the cwd makes that same directory the *user* config directory too:
+the harness files its own state there, reads the seeded skill as a user
+skill, and — with Claude Code's `--setting-sources project` — never
+surfaces it. Every run then reports "never activated" and the skill takes
+the blame for the sandbox.
+
+One thing that can genuinely break an image: a `USER` that cannot write the
+bind mount. Artifacts are written into `/work`, so if the run cannot write
+there, every `artifact_created` fails for a reason that has nothing to do
+with the skill. Whether a non-root user can write it depends on the host,
+so if you drop privileges, check with `shakedown doctor --sandbox
+container` before trusting a matrix.
 
 ## Credentials
 

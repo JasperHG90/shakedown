@@ -15,4 +15,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Convenience only: shakedown cds here itself, and sets HOME and PATH,
+# so an image that omits this still works.
 WORKDIR /work

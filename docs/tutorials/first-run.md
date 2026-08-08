@@ -82,6 +82,10 @@ shakedown init --harness claude-code
 your skill, because the skill is a path you pass on the command line.
 `shakedowns/` is where cases go.
 
+Repeat `--harness` for several at once, or leave it off entirely and add
+one later; measuring a second harness is the point of the tool, and one
+`shakedown.toml` holds as many as you ship to.
+
 ## 3. Write the cases
 
 A case is a prompt and what must be true afterwards. Write two: one where

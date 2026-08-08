@@ -157,15 +157,23 @@ def _unselectable(name: str) -> str:
 @app.command()
 def init(
     harness: Annotated[
-        str, typer.Option("--harness", help="the harness to describe: " + ", ".join(HARNESSES))
-    ],
+        list[str] | None,
+        typer.Option(
+            "--harness",
+            help="a harness to describe; repeat for several. " + ", ".join(HARNESSES),
+        ),
+    ] = None,
     config: Annotated[Path, typer.Option("--config", help="where to write shakedown.toml")] = Path(
         "shakedown.toml"
     ),
 ) -> None:
-    """Scaffold a config for one harness, and the directory cases live in."""
+    """Scaffold a config, and the directory cases live in.
+
+    Name no harness and the config is a stub that still parses; name
+    several and each gets a block and a matrix entry.
+    """
     try:
-        written = scaffold(config, harness)
+        written = scaffold(config, harness or [])
     except (ValueError, FileExistsError, OSError) as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(2) from exc
@@ -230,6 +238,15 @@ def doctor(
         raise typer.Exit(2) from exc
 
     names = [harness] if harness else list(loaded.harness)
+    if not names:
+        # A config with no harness parses, so this is a real state rather
+        # than a broken file. Exiting 0 in silence would read as "every
+        # harness qualifies".
+        console.print(
+            "[red]no harnesses in the config[/], so there is nothing to check. "
+            "Add one with `shakedown init --harness <name>`, or write your own."
+        )
+        raise typer.Exit(2)
     worst = 0
     for name in names:
         if name not in loaded.harness:

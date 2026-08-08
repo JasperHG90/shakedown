@@ -866,6 +866,66 @@ def test_canary_is_a_loadable_skill() -> None:
     assert "shakedown-ok" in (canary.path / "SKILL.md").read_text()
 
 
+def test_init_writes_a_config_that_parses_with_no_harness_at_all(tmp_path: Path) -> None:
+    """Choosing a harness is not a prerequisite for having a config.
+
+    The stub still parses, so the free commands keep working, and the ones
+    that need a harness say what is missing rather than choking on a file
+    that will not load.
+    """
+    from shakedown.scaffold import scaffold
+
+    scaffold(tmp_path / "shakedown.toml")
+
+    loaded = load_config(tmp_path / "shakedown.toml")
+    assert loaded.harness == {}
+    assert loaded.targets() == []
+
+
+def test_init_writes_every_harness_it_was_given(tmp_path: Path) -> None:
+    """Measuring one harness answers nothing about the next."""
+    from shakedown.scaffold import scaffold
+
+    scaffold(tmp_path / "shakedown.toml", ["claude-code", "opencode"])
+
+    loaded = load_config(tmp_path / "shakedown.toml")
+    assert sorted(loaded.harness) == ["claude-code", "opencode"]
+    assert [t.harness.name for t in loaded.targets()] == ["claude-code", "opencode"]
+
+
+def test_init_writes_a_repeated_harness_once(tmp_path: Path) -> None:
+    """Two blocks for one harness is a config that will not load."""
+    from shakedown.scaffold import scaffold
+
+    scaffold(tmp_path / "shakedown.toml", ["opencode", "opencode"])
+
+    assert sorted(load_config(tmp_path / "shakedown.toml").harness) == ["opencode"]
+
+
+def test_init_checks_every_name_before_writing_anything(tmp_path: Path) -> None:
+    """A typo in the second `--harness` must not leave the first behind."""
+    from shakedown.scaffold import scaffold
+
+    with pytest.raises(ValueError, match="gemini"):
+        scaffold(tmp_path / "shakedown.toml", ["claude-code", "gemini"])
+    assert not (tmp_path / "shakedown.toml").exists()
+    assert not (tmp_path / "shakedowns").exists()
+
+
+def test_doctor_says_so_when_the_config_names_no_harness(tmp_path: Path) -> None:
+    """Exiting 0 in silence would read as every harness qualifying."""
+    from typer.testing import CliRunner
+
+    from shakedown.cli import app
+    from shakedown.scaffold import scaffold
+
+    scaffold(tmp_path / "shakedown.toml")
+    done = CliRunner().invoke(app, ["doctor", "--config", str(tmp_path / "shakedown.toml")])
+
+    assert done.exit_code == 2
+    assert "no harnesses" in done.output
+
+
 def test_example_skill_forbids_writing_the_artifact_directly() -> None:
     """The example must exercise the behavior the tool measures."""
     text = (REPO / "examples/write-plan/SKILL.md").read_text()
@@ -898,7 +958,7 @@ def test_init_scaffolds_a_config_shakedown_can_actually_load(tmp_path: Path, nam
     """
     from shakedown.scaffold import scaffold
 
-    written = scaffold(tmp_path / "shakedown.toml", named)
+    written = scaffold(tmp_path / "shakedown.toml", [named])
     assert len(written) == 2
 
     loaded = load_config(tmp_path / "shakedown.toml")
@@ -915,7 +975,7 @@ def test_init_writes_no_skill(tmp_path: Path) -> None:
     """
     from shakedown.scaffold import scaffold
 
-    written = scaffold(tmp_path / "shakedown.toml", "claude-code")
+    written = scaffold(tmp_path / "shakedown.toml", ["claude-code"])
 
     assert sorted(p.name for p in written) == [".gitkeep", "shakedown.toml"]
     assert not list(tmp_path.glob("**/SKILL.md"))
@@ -925,7 +985,7 @@ def test_init_keeps_the_cases_directory_clonable(tmp_path: Path) -> None:
     """git records no empty directory, so the convention would not survive."""
     from shakedown.scaffold import scaffold
 
-    scaffold(tmp_path / "shakedown.toml", "claude-code")
+    scaffold(tmp_path / "shakedown.toml", ["claude-code"])
     assert (tmp_path / "shakedowns" / ".gitkeep").is_file()
 
 
@@ -934,7 +994,7 @@ def test_init_refuses_a_harness_it_cannot_write(tmp_path: Path) -> None:
     from shakedown.scaffold import scaffold
 
     with pytest.raises(ValueError, match="claude-code"):
-        scaffold(tmp_path / "shakedown.toml", "no-such-harness")
+        scaffold(tmp_path / "shakedown.toml", ["no-such-harness"])
     assert not (tmp_path / "shakedown.toml").exists()
 
 
@@ -943,11 +1003,11 @@ def test_init_refuses_to_overwrite(tmp_path: Path) -> None:
     from shakedown.scaffold import scaffold
 
     config = tmp_path / "shakedown.toml"
-    scaffold(config, "claude-code")
+    scaffold(config, ["claude-code"])
     config.write_text("mine")
 
     with pytest.raises(FileExistsError, match=r"shakedown\.toml"):
-        scaffold(config, "gemini-cli")
+        scaffold(config, ["gemini-cli"])
     assert config.read_text() == "mine"
 
 
@@ -961,7 +1021,7 @@ def test_init_puts_cases_where_the_tool_looks_for_them(tmp_path: Path) -> None:
     from shakedown.models import find_cases
     from shakedown.scaffold import scaffold
 
-    scaffold(tmp_path / "shakedown.toml", "claude-code")
+    scaffold(tmp_path / "shakedown.toml", ["claude-code"])
     skill = _skill_dir(tmp_path)
     (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(_cases("../my-skill"))
 

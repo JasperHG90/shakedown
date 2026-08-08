@@ -24,6 +24,10 @@ activation_tool = "Skill"
 dockerfile = "examples/docker/claude-code.Dockerfile"
 
 [harness.claude-code.env]
+# `tmp` only: this is the developer's own home, which is what makes that
+# sandbox fast and not isolated. A container ignores it and sets its own
+# HOME inside the workspace, so the harness cannot mistake the seeded
+# skill for a user one.
 HOME = "${HOME}"
 # For `--sandbox container`: the container inherits nothing, and on macOS a
 # subscription login lives in the Keychain rather than in a file, so neither

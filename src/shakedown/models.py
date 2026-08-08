@@ -223,8 +223,11 @@ class Target(BaseModel):
 class Config(BaseModel):
     """shakedown.toml: harnesses and the matrix."""
 
-    harness: dict[str, Harness]
-    matrix: list[MatrixEntry]
+    #: Both default to empty so a config with no harness yet still loads.
+    #: `init` can write one before you have chosen a harness, and the
+    #: commands that need one say so rather than failing to parse.
+    harness: dict[str, Harness] = Field(default_factory=dict)
+    matrix: list[MatrixEntry] = Field(default_factory=list)
     repeat: int = 1
 
     @field_validator("harness")
