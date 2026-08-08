@@ -8,19 +8,26 @@ each manifest is a few lines pointing at it.
 ## Install
 
 ```bash
-# Claude Code
+# Claude Code, from anywhere
+claude plugin marketplace add JasperHG90/shakedown
+claude plugin install shakedown@shakedown
+
+# Claude Code, while working on the plugin itself
 claude --plugin-dir ./plugins/claude-code
 
 # Gemini CLI
 gemini extensions link ./plugins/gemini
 ```
 
+Claude Code installs plugins from a marketplace rather than from a path,
+so the repository root carries a `.claude-plugin/marketplace.json` naming
+this one. `--plugin-dir` is the development form: it loads the directory
+directly, which is what you want while changing the hooks.
+
 Both read the shared scripts through their own root variable
 (`${CLAUDE_PLUGIN_ROOT}`, `${extensionPath}`), which resolves to the plugin
 directory, so the scripts are one level up at `plugins/scripts/`.
 
-That is why the install commands are these two and not the obvious ones.
-`claude plugin install` takes a name from a marketplace, not a path.
 `gemini extensions install` copies the directory into
 `~/.gemini/extensions/`, which leaves the `../scripts` reference pointing
 at nothing; `link` resolves the root back to the clone, so it keeps

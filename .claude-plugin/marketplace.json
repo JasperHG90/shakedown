@@ -1,0 +1,25 @@
+{
+  "name": "shakedown",
+  "owner": {
+    "name": "Jasper Ginn",
+    "url": "https://github.com/JasperHG90"
+  },
+  "metadata": {
+    "description": "Smoke-test agent skills across harnesses and models.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "shakedown",
+      "source": "./plugins/claude-code",
+      "description": "Hooks for authoring and running shakedown cases: warns when the CLI or a declared credential is missing, checks a cases file the moment it is written, and blocks a paid run whose cases cannot load.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Jasper Ginn",
+        "url": "https://github.com/JasperHG90"
+      },
+      "homepage": "https://github.com/JasperHG90/shakedown",
+      "keywords": ["skills", "testing", "conformance", "harness"]
+    }
+  ]
+}

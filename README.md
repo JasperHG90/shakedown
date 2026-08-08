@@ -179,11 +179,9 @@ qualifies
 ```
 
 `shakedown case run` executes the matrix and prints a pass rate per target and
-dimension, plus a warning when the sandbox was not isolated. The recording
-below was made before the command was renamed, so the line it types is the
-old `shakedown run`. The table below it is what `case run` prints today:
+dimension, plus a warning when the sandbox was not isolated:
 
-![the scaffold-service example measured against the claude-code harness, printing a scores table where every dimension passes; recorded before the rename, so the typed command reads shakedown run](assets/run.gif)
+![the scaffold-service example measured against the claude-code harness, printing a scores table where every dimension passes](assets/run.gif)
 
 Every run also writes `shakedown-report.json` with the per-run detail
 behind those numbers, including the argv, the tool calls, and the kept

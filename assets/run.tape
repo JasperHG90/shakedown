@@ -17,7 +17,9 @@ Set TypingSpeed 55ms
 Set WaitTimeout 900s
 
 Hide
-Type "export PS1='$ ' && export COLUMNS=150 && clear" Enter
+# `uv` warns when VIRTUAL_ENV names another project's venv, which is a
+# line about the recorder's shell rather than about shakedown.
+Type "unset VIRTUAL_ENV && export PS1='$ ' && export COLUMNS=150 && clear" Enter
 Show
 
 Sleep 800ms
