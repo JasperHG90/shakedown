@@ -5,7 +5,7 @@ here, then read [`scaffold-service`](../scaffold-service) for the fuller
 shape.
 
 ```bash
-uv run shakedown run examples/write-plan
+uv run shakedown case run examples/write-plan
 ```
 
 ## The skill

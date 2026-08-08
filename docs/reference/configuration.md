@@ -1,7 +1,7 @@
 # `shakedown.toml`
 
 Harnesses and the matrix. Nothing about the skill under test belongs here —
-that is a path you pass to `shakedown run`.
+that is a path you pass to `shakedown case run`.
 
 shakedown looks for `shakedown.toml` in the working directory, then in each
 parent, and uses the first one it finds. `--config` overrides the search.

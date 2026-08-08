@@ -1,6 +1,6 @@
 # The JSON report
 
-Every `shakedown run` writes one JSON file, `shakedown-report.json` by
+Every `shakedown case run` writes one JSON file, `shakedown-report.json` by
 default. It carries the same numbers the terminal printed, plus everything
 needed to debug a failure without rerunning it.
 

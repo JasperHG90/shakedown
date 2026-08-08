@@ -17,6 +17,9 @@ CASES_NAME = "cases.toml"
 #: the skill or above it, holding one `<slug>.cases.toml` per skill.
 CASES_DIR = "shakedowns"
 CASES_SUFFIX = ".cases.toml"
+#: The cases schema this build reads and writes. Bumped when a change to
+#: the file's shape would make an older reader measure the wrong thing.
+CASES_VERSION = 1
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
@@ -155,16 +158,49 @@ class CasesFile(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    #: The schema this file is written against. The default is a literal 1
+    #: rather than the current version: an absent key means the file was
+    #: written before versioning existed, and that is true forever, not
+    #: "whatever this build happens to be".
+    version: int = 1
     skill: str = ""
     #: One directory, or several. Several is how a double shared between
     #: skills combines with the ones only this skill needs.
-    fixtures: str | list[str] = ""
+    fixtures: list[str] = Field(default_factory=list)
     case: list[Case] = Field(default_factory=list)
 
-    def fixture_dirs(self) -> list[str]:
-        """The declared directories, in the order they were written."""
-        named = [self.fixtures] if isinstance(self.fixtures, str) else self.fixtures
-        return [entry for entry in named if entry]
+    @field_validator("version")
+    @classmethod
+    def _readable(cls, value: int) -> int:
+        """Refuse the future, accept the past.
+
+        A newer file read by an older build would have its unknown keys
+        dropped, and a dropped key is a check that quietly measures
+        nothing. An older file has no such problem, so refusing one would
+        turn every schema bump into a breaking release for every cases
+        file already written.
+        """
+        if value > CASES_VERSION:
+            raise ValueError(
+                f"version {value} is newer than this build reads "
+                f"(it understands up to version {CASES_VERSION}); upgrade shakedown"
+            )
+        if value < 1:
+            raise ValueError(f"version {value} is not a version; the first one is 1")
+        return value
+
+    @field_validator("fixtures", mode="before")
+    @classmethod
+    def _one_or_many(cls, value: object) -> object:
+        """Accept `fixtures = "dir"` as shorthand for a single directory.
+
+        Normalized here rather than by an accessor, so every reader
+        downstream gets a list and no caller has to know about the
+        shorthand.
+        """
+        if isinstance(value, str):
+            return [value] if value else []
+        return value
 
 
 class MatrixEntry(BaseModel):
@@ -234,6 +270,8 @@ class Skill(BaseModel):
     path: Path
     name: str
     cases: list[Case]
+    #: The schema its cases file declared, so a report can say what was read.
+    version: int = CASES_VERSION
     #: Stand-ins the cases supply: executables that shadow the real thing on
     #: PATH. Declared beside the cases, never inside the skill, because a
     #: fake `gh` is something the skill is measured with rather than
@@ -391,7 +429,7 @@ def _build(skill_dir: Path, cases_file: Path) -> Skill:
         raise ConfigError(f"{cases_file} declares no [[case]] blocks")
 
     fixtures = []
-    for named in declared.fixture_dirs():
+    for named in declared.fixtures:
         resolved = (cases_file.parent / named).resolve()
         if not resolved.is_dir():
             raise ConfigError(
@@ -404,6 +442,15 @@ def _build(skill_dir: Path, cases_file: Path) -> Skill:
                 f"{cases_file}: `fixtures` names {resolved}, which is inside the skill. "
                 "Stand-ins belong beside the cases: one inside the skill ships with it."
             )
+        # And a directory holding the skill would be seeded whole, carrying
+        # the cases file into the sandbox with it. A model that reads its
+        # own answers passes `inputs_resolved` without being asked, which
+        # is the one thing that check claims to rule out.
+        if resolved in skill_dir.parents:
+            raise ConfigError(
+                f"{cases_file}: `fixtures` names {resolved}, which contains the skill. "
+                "Name a directory of stand-ins, not a tree holding the skill and its cases."
+            )
         fixtures.append(resolved)
 
     return Skill(
@@ -411,4 +458,5 @@ def _build(skill_dir: Path, cases_file: Path) -> Skill:
         name=_front_matter_name(skill_md, skill_md.stat().st_mtime),
         cases=declared.case,
         fixtures=fixtures,
+        version=declared.version,
     )

@@ -14,8 +14,8 @@ few cents of model spend.
 
 ## Tutorial
 
-- [Your first run](tutorials/first-run.md) — install shakedown, check a
-  harness, measure the example skill, and read the matrix it prints.
+- [Your first run](tutorials/first-run.md) — build a small skill, check a
+  harness, measure the skill, and read the matrix it prints.
 
 ## How-to guides
 

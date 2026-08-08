@@ -14,7 +14,7 @@ lets you pin the version, so the harness you measured is the harness you
 can go back to.
 
 ```bash
-uv run shakedown run examples/write-plan --sandbox container
+uv run shakedown case run examples/write-plan --sandbox container
 ```
 
 The build runs at most once per process, keyed on the dockerfile's mtime.

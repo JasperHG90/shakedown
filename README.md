@@ -136,14 +136,21 @@ author. Delete the targets you cannot reach.
 uv sync
 uv run pytest                             # no spend. pulls an image for the container tests.
 uv run shakedown doctor                   # is the harness usable? spends a little.
-uv run shakedown run examples/write-plan  # the matrix. spends money.
+uv run shakedown case run examples/write-plan  # the matrix. spends money.
 ```
 
 Then point it at your own skill:
 
+`init` writes no skill, because yours already exists. To write the cases
+for it, the bundled [`create-cases`](skills/create-cases/SKILL.md) skill
+reads your skill, drafts cases for the three checks, writes any fixtures
+they need, and offers to run them.
+
 ```bash
-uv run shakedown init ./my-skill          # scaffold a skill that already passes
-uv run shakedown run ./my-skill --repeat 5 -j 5
+uv run shakedown init --harness claude-code    # a config, and shakedowns/ to put cases in
+# …then write shakedowns/<slug>.cases.toml, by hand or with create-cases
+uv run shakedown case validate shakedowns/my-skill.cases.toml   # free
+uv run shakedown case run ./my-skill --repeat 5 -j 5
 ```
 
 The skill under test is a path, and nothing about it is configured anywhere
@@ -168,10 +175,10 @@ claude-code
 qualifies
 ```
 
-`shakedown run` executes the matrix and prints a pass rate per target and
+`shakedown case run` executes the matrix and prints a pass rate per target and
 dimension, plus a warning when the sandbox was not isolated:
 
-![shakedown run executing the scaffold-service example against the claude-code harness, printing a scores table where every dimension passes](assets/run.gif)
+![the scaffold-service example measured against the claude-code harness, printing a scores table where every dimension passes](assets/run.gif)
 
 Every run also writes `shakedown-report.json` with the per-run detail
 behind those numbers, including the argv, the tool calls, and the kept
@@ -258,6 +265,9 @@ src/shakedown/
   doctor.py       the six prerequisites, decided by running them
   scaffold.py     what `shakedown init` writes
   cli.py          a thin front for pytest
+skills/
+  add-harness/     how to describe a harness shakedown does not ship
+  create-cases/    how to write a cases file for a skill you already have
 examples/
   write-plan/      SKILL.md, bin/planctl
   scaffold-service/  SKILL.md, cases.toml, bin/scaffoldctl
@@ -276,12 +286,12 @@ with side effects: it clones a shared repository and opens a pull request, so
 its cases supply a `gh` that records those calls against a local repository
 instead of making them.
 
-`pytest` works directly, and `shakedown run` is a front for it. Unknown
+`pytest` works directly, and `shakedown case run` is a front for it. Unknown
 options are rejected rather than forwarded, so put pytest's own flags after
 a `--`:
 
 ```bash
-uv run shakedown run examples/write-plan -- -x --timeout 60
+uv run shakedown case run examples/write-plan -- -x --timeout 60
 uv run pytest src/shakedown/conformance.py -m live --skill examples/write-plan -x
 ```
 

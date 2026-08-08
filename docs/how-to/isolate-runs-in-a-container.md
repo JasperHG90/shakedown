@@ -75,7 +75,7 @@ reference: a token written into the TOML gets committed.
 
 ```bash
 shakedown doctor --sandbox container --harness claude-code
-shakedown run ./my-skill --sandbox container
+shakedown case run ./my-skill --sandbox container
 ```
 
 Check with `doctor` first. A broken image fails every scenario, and finding

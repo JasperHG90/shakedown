@@ -116,7 +116,15 @@ class Sandbox(ABC):
         # declared order, so a shared double listed first can be overridden
         # by one only this skill needs.
         for extra in skill.fixtures:
-            shutil.copytree(extra, self.path / "bin", dirs_exist_ok=True)
+            # Same exclusion as the skill copy: a fixtures directory that
+            # happens to sit beside a cases file must not carry the answers
+            # into the sandbox with it.
+            shutil.copytree(
+                extra,
+                self.path / "bin",
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(*NOT_THE_SKILL),
+            )
 
 
 class TempSandbox(Sandbox):

@@ -1,4 +1,4 @@
-# shakedown run — the matrix over a real skill.
+# shakedown case run — the matrix over a real skill.
 #
 # One harness on purpose. The whole matrix is the honest picture but it
 # runs at the speed of its slowest target, which makes a tedious GIF.
@@ -21,7 +21,7 @@ Type "export PS1='$ ' && export COLUMNS=150 && clear" Enter
 Show
 
 Sleep 800ms
-Type "uv run shakedown run examples/scaffold-service --harness claude-code -j 3" Sleep 600ms Enter
+Type "uv run shakedown case run examples/scaffold-service --harness claude-code -j 3" Sleep 600ms Enter
 Wait+Screen /report:/
 Sleep 400ms
 Sleep 2500ms

@@ -25,7 +25,7 @@ about any particular agent CLI.
 
 ## The CLI is a thin front for pytest
 
-`shakedown run` translates friendly flags into pytest arguments and shells
+`shakedown case run` translates friendly flags into pytest arguments and shells
 out. It is convenience, never a wall.
 
 Three rules keep it honest:
@@ -38,8 +38,8 @@ Three rules keep it honest:
   separator.
 
 That last point is the one that bites. Click rejects unknown options before
-they reach pytest, so `shakedown run ./my-skill --timeout 600` is an error,
-not a pass-through. Write `shakedown run ./my-skill -- --timeout 600`.
+they reach pytest, so `shakedown case run ./my-skill --timeout 600` is an error,
+not a pass-through. Write `shakedown case run ./my-skill -- --timeout 600`.
 
 Parametrizing over the matrix is exactly what pytest's fixtures already do,
 and `-n` from pytest-xdist gives parallel runs for free: every scenario is

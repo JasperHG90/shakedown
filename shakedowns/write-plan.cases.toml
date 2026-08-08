@@ -1,3 +1,4 @@
+version = 1
 # The skill these cases measure. Cases are what a skill is held to rather
 # than part of what ships, so they live out here and name their subject.
 skill = "../examples/write-plan"

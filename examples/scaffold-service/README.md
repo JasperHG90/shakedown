@@ -7,7 +7,7 @@ Use this one to see what a real `cases.toml` looks like. Use
 [`write-plan`](../write-plan) first if you only want the shape.
 
 ```bash
-uv run shakedown run examples/scaffold-service -j 3
+uv run shakedown case run examples/scaffold-service -j 3
 ```
 
 ## The skill
@@ -60,7 +60,7 @@ These numbers move between runs — that is the point of measuring them.
 Re-run with a higher `--repeat` to see the spread:
 
 ```bash
-uv run shakedown run examples/scaffold-service --repeat 5 -j 9
+uv run shakedown case run examples/scaffold-service --repeat 5 -j 9
 ```
 
 ## Files

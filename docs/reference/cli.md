@@ -3,8 +3,9 @@
 | Command | Does | Spends money |
 |---|---|---|
 | `shakedown` | Prints the banner and the help | no |
-| [`shakedown run`](#shakedown-run) | Runs the matrix | yes |
-| [`shakedown init`](#shakedown-init) | Scaffolds a config and a starter skill | no |
+| [`shakedown case run`](#shakedown-case-run) | Runs the matrix | yes |
+| [`shakedown case validate`](#shakedown-case-validate) | Checks a cases file | no |
+| [`shakedown init`](#shakedown-init) | Scaffolds a config for one harness | no |
 | [`shakedown doctor`](#shakedown-doctor) | Checks a harness against the prerequisites | yes, a little |
 | [`shakedown summary`](#shakedown-summary) | Renders a report as markdown | no |
 
@@ -13,10 +14,10 @@ Global option: `--version` prints the version and exits.
 Run from a clone rather than a tool install? Prefix everything with
 `uv run`.
 
-## `shakedown run`
+## `shakedown case run`
 
 ```
-shakedown run [OPTIONS] SKILL [PYTEST_ARGS]...
+shakedown case run [OPTIONS] SKILL [PYTEST_ARGS]...
 ```
 
 Runs every case in `SKILL` against every target in the matrix.
@@ -41,49 +42,87 @@ Runs every case in `SKILL` against every target in the matrix.
 otherwise.
 
 ```bash
-shakedown run ./my-skill
-shakedown run ./my-skill --repeat 5 --parallel 5
-shakedown run ./my-skill --harness gemini-cli --case missing-owner
-shakedown run ./my-skill --sandbox container
+shakedown case run ./my-skill
+shakedown case run ./my-skill --repeat 5 --parallel 5
+shakedown case run ./my-skill --harness gemini-cli --case missing-owner
+shakedown case run ./my-skill --sandbox container
 ```
 
 ### Passing pytest arguments
 
-`shakedown run` is a thin front for pytest, but it does not accept unknown
+`shakedown case run` is a thin front for pytest, but it does not accept unknown
 options — click rejects them before they reach pytest. Put them after `--`:
 
 ```bash
-shakedown run ./my-skill -- -x --pdb
-shakedown run ./my-skill -- --timeout 600
+shakedown case run ./my-skill -- -x --pdb
+shakedown case run ./my-skill -- --timeout 600
 ```
 
 Everything after `--` goes to pytest untouched, including
 [pytest-level options](#pytest-options) that have no CLI flag of their own.
 
-## `shakedown init`
+## `shakedown case validate`
 
 ```
-shakedown init [OPTIONS] [SKILL]
+shakedown case validate PATH
 ```
 
-Writes a starter skill and, unless one already exists, a config. The skill
-is a working one shaped after the bundled example, so the first
-`shakedown run` is a real measurement rather than a template to fill in.
+Loads a cases file and prints what each case measures. Runs nothing, so it
+costs nothing — this is the check to put in CI beside your linters.
 
 | Argument | Type | Default | Description |
 |---|---|---|---|
-| `SKILL` | path | `my-skill` | Where to scaffold the skill |
+| `PATH` | path | required | The cases file, or the skill whose cases to check |
+
+```
+ok register-service: 3 case(s), version 1
+  fully-specified: tool_used, artifact_created
+  withholds-the-owner: tool_used, artifact_created, inputs_resolved
+  two-tiers: tool_used, artifact_created
+```
+
+A case listed as measuring `nothing but skill_fired` declares no check at
+all: it passes whatever the skill does, so it is worth either giving it
+something to prove or deleting.
+
+**Exit code** `2` when the file will not load, with the reason and, where
+there is one, the remedy.
+
+## `shakedown init`
+
+```
+shakedown init --harness NAME [OPTIONS]
+```
+
+Writes a `shakedown.toml` describing one harness, and the directory cases
+will live in. It writes no skill: the skill under test is yours and already
+exists.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
+| `--harness` | `claude-code`, `gemini-cli`, `opencode` | required | Which harness to describe |
 | `--config` | path | `shakedown.toml` | Where to write the config |
 
-Writes `SKILL.md` and an executable `bin/notectl` under `SKILL`, the cases
-as `shakedowns/<SKILL>.cases.toml` beside it, plus the config if it is
-absent.
+The cases directory is always `shakedowns/`, beside the config, and is not
+configurable: [discovery](cases.md#where-it-lives) looks for that name and
+nothing else, so a scaffold that wrote anywhere else would produce a layout
+no later command could find.
 
-**Exit code** `2` if any target file already exists. Nothing is overwritten,
-ever; the error names every clash.
+```
+  + shakedown.toml
+  + shakedowns/.gitkeep
+```
+
+The `.gitkeep` is there because git records no empty directory, and a
+`shakedowns/` that disappears on clone takes the convention with it.
+
+**Exit code** `2` if a target file already exists, or if `--harness` names
+one it cannot write. Nothing is overwritten, ever; the error names every
+clash.
+
+To write the cases themselves, use the bundled
+[`create-cases`](../../skills/create-cases/SKILL.md) skill, which reads
+your skill and drafts them.
 
 ## `shakedown doctor`
 
@@ -121,7 +160,7 @@ Prints a report as markdown, for a PR comment or a CI job summary.
 
 | Argument | Type | Default | Description |
 |---|---|---|---|
-| `REPORT` | path | `shakedown-report.json` | A report written by `shakedown run` |
+| `REPORT` | path | `shakedown-report.json` | A report written by `shakedown case run` |
 
 **Exit code** `2` if the file does not exist.
 
@@ -131,7 +170,7 @@ another.
 
 ## pytest options
 
-`shakedown run` shells out to pytest with shakedown's plugin loaded. Running
+`shakedown case run` shells out to pytest with shakedown's plugin loaded. Running
 pytest directly is fully supported and takes these options:
 
 | Option | Type | Default | Description |
@@ -145,7 +184,7 @@ pytest directly is fully supported and takes these options:
 | `--report` | path | `shakedown-report.json` | Where the report lands |
 | `--keep-workspaces` | flag | off | Keep every workspace |
 
-`--timeout` has no `shakedown run` flag of its own. It bounds a single turn,
+`--timeout` has no `shakedown case run` flag of its own. It bounds a single turn,
 which is the unit that actually hangs, and reaches pytest through `--`.
 
 ```bash

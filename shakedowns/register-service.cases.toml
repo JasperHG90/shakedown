@@ -1,3 +1,4 @@
+version = 1
 # A skill whose whole job has side effects: it clones a shared repository,
 # edits it, and opens a pull request. `fixtures` supplies a `gh` that records
 # those calls against a local repository instead of making them, so the run is

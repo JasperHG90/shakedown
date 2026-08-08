@@ -16,6 +16,7 @@ from shakedown.checks import Result, Status, artifact_created, inputs_resolved, 
 from shakedown.doctor import verdict_on
 from shakedown.events import StreamError, ToolCall, Turn, parse, read
 from shakedown.models import (
+    CASES_VERSION,
     Answer,
     Case,
     ConfigError,
@@ -26,6 +27,7 @@ from shakedown.models import (
 )
 from shakedown.report import MARKER, Report, RunRecord
 from shakedown.runner import Conversation, _match
+from shakedown.scaffold import HARNESSES
 
 REPO = Path(__file__).resolve().parents[1]
 NESTED = Events(container="message.content")
@@ -706,14 +708,15 @@ def test_the_action_only_calls_commands_and_flags_that_exist() -> None:
     step = next(s for s in action()["runs"]["steps"] if s.get("id") == "measure")["run"]
 
     runner = CliRunner()
-    for command in ("run", "summary"):
-        assert f"shakedown {command}" in step or f"args=({command} " in step
-        assert runner.invoke(app, [command, "--help"]).exit_code == 0
+    for command in (["case", "run"], ["summary"]):
+        spelled = " ".join(command)
+        assert f"shakedown {spelled}" in step or f"args=({spelled} " in step
+        assert runner.invoke(app, [*command, "--help"]).exit_code == 0
 
     used = set(re.findall(r"--[a-z-]+", step))
-    helped = runner.invoke(app, ["run", "--help"]).output
+    helped = runner.invoke(app, ["case", "run", "--help"]).output
     for flag in used:
-        assert flag in helped, f"{flag} is not a flag of `shakedown run`"
+        assert flag in helped, f"{flag} is not a flag of `shakedown case run`"
 
 
 def test_the_action_installs_from_the_package_root() -> None:
@@ -794,6 +797,68 @@ def test_the_add_harness_skill_documents_a_config_that_loads(tmp_path: Path) -> 
     assert built.env == {"MY_AGENT_TOKEN": "${MY_AGENT_TOKEN}"}
 
 
+def test_the_create_cases_skill_shows_a_cases_file_that_loads(tmp_path: Path) -> None:
+    """A skill that teaches an invalid cases file is worse than no skill.
+
+    The template it tells people to write is extracted and loaded, so a
+    renamed key breaks this test rather than someone's afternoon.
+    """
+    skill = REPO / "skills" / "create-cases" / "SKILL.md"
+    blocks = re.findall(r"```toml\n(.*?)```", skill.read_text(), re.DOTALL)
+    template = next(b for b in blocks if re.search(r"^skill\s*=", b, re.M) and "[[case]]" in b)
+
+    (tmp_path / "skills" / "my-skill").mkdir(parents=True)
+    (tmp_path / "skills" / "my-skill" / "SKILL.md").write_text(
+        "---\nname: my-skill\ndescription: d\n---\n"
+    )
+    (tmp_path / "shakedowns").mkdir()
+    written = tmp_path / "shakedowns" / "my-skill.cases.toml"
+    written.write_text(template)
+
+    built = load_skill(written)
+    assert built.name == "my-skill"
+    assert built.version == CASES_VERSION
+    assert [c.name for c in built.cases] == ["fully-specified"]
+    assert built.cases[0].tool == "myctl"
+
+
+def test_the_create_cases_skill_shows_an_answer_pattern_that_can_fire() -> None:
+    """`\\b` in a TOML basic string is a backspace, not a word boundary.
+
+    The natural `match = "(?i)\\bowner\\b"` therefore compiles to a pattern
+    that never matches. The case validates, the run costs money, and
+    `inputs_resolved` fails blaming the skill. So the example the skill
+    shows has to be one that actually fires.
+    """
+    import tomllib
+
+    skill = REPO / "skills" / "create-cases" / "SKILL.md"
+    blocks = re.findall(r"```toml\n(.*?)```", skill.read_text(), re.DOTALL)
+    shown = next(b for b in blocks if "case.answers" in b)
+
+    case = Case.model_validate(tomllib.loads(shown)["case"][0])
+    assert case.answers, "the withheld-input case is the one worth showing"
+    assert case.answers[0].match.search("Who is the owner of this?")
+    assert "\b" not in case.answers[0].match.pattern, "a backspace, not a word boundary"
+
+
+def test_the_create_cases_skill_names_commands_that_exist() -> None:
+    """It tells people to run things, so the things have to be real."""
+    from typer.testing import CliRunner
+
+    from shakedown.cli import app
+
+    body = (REPO / "skills" / "create-cases" / "SKILL.md").read_text()
+    # Only what it tells someone to run. Prose says "shakedown measures at
+    # most three things", which is not an invocation.
+    runnable = "\n".join(re.findall(r"```bash\n(.*?)```", body, re.DOTALL))
+    runner = CliRunner()
+    spelled = set(re.findall(r"^shakedown ((?:case )?[a-z-]+)", runnable, re.MULTILINE))
+    assert spelled, "the skill is supposed to drive the CLI"
+    for command in spelled:
+        assert runner.invoke(app, [*command.split(), "--help"]).exit_code == 0, command
+
+
 def test_canary_is_a_loadable_skill() -> None:
     """doctor's whole verdict rests on it."""
     canary = load_skill(REPO / "src/shakedown/canary")
@@ -824,66 +889,187 @@ def test_harness_requires_start_and_skills() -> None:
         Harness(start=["x"])  # type: ignore[call-arg]
 
 
-def test_init_scaffolds_something_shakedown_can_actually_load(tmp_path: Path) -> None:
-    """A scaffold that does not parse is worse than no scaffold."""
+@pytest.mark.parametrize("named", sorted(HARNESSES))
+def test_init_scaffolds_a_config_shakedown_can_actually_load(tmp_path: Path, named: str) -> None:
+    """A scaffold that does not parse is worse than no scaffold.
+
+    Every harness `init` offers, because a block is a template and a
+    template with a typo in it fails for whoever picked that harness.
+    """
     from shakedown.scaffold import scaffold
 
-    written = scaffold(tmp_path / "my-skill", tmp_path / "shakedown.toml")
-    assert len(written) == 4
+    written = scaffold(tmp_path / "shakedown.toml", named)
+    assert len(written) == 2
 
     loaded = load_config(tmp_path / "shakedown.toml")
-    assert "claude-code" in loaded.harness
-    assert [t.label for t in loaded.targets()] == ["claude-code/claude-opus-5"]
-
-    built = load_skill(tmp_path / "my-skill")
-    assert built.name == "my-skill"
-    assert [c.name for c in built.cases] == ["fully-specified", "missing-author"]
-    # The withheld fact drives every dimension: it must be asked for, it must
-    # reach the artifact, and the artifact must come from the CLI.
-    withheld = built.cases[1]
-    assert withheld.answers[0].reply == "platform-team"
-    assert withheld.answers[0].match.search("Who is the author?")
-    assert withheld.tool == "notectl"
-    assert withheld.artifacts[0].path == "NOTE.md"
+    assert named in loaded.harness
+    assert [t.harness.name for t in loaded.targets()] == [named]
+    assert all(t.model for t in loaded.targets()), "a target with no model measures nothing"
 
 
-def test_the_scaffolded_cli_writes_the_artifact(tmp_path: Path) -> None:
-    """The deterministic half has to work, or every case fails on setup."""
-    import subprocess
+def test_init_writes_no_skill(tmp_path: Path) -> None:
+    """The skill under test is the user's and already exists.
 
+    A specimen skill meant the first run measured the scaffold rather than
+    anything anyone ships.
+    """
     from shakedown.scaffold import scaffold
 
-    scaffold(tmp_path / "my-skill", tmp_path / "shakedown.toml")
-    done = subprocess.run(
-        [
-            str(tmp_path / "my-skill" / "bin" / "notectl"),
-            "write",
-            "--subject",
-            "Q4 rollout",
-            "--author",
-            "platform-team",
-            "--dir",
-            str(tmp_path),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert done.returncode == 0, done.stderr
-    written = (tmp_path / "NOTE.md").read_text()
-    assert "Q4 rollout" in written
-    assert "platform-team" in written
+    written = scaffold(tmp_path / "shakedown.toml", "claude-code")
+
+    assert sorted(p.name for p in written) == [".gitkeep", "shakedown.toml"]
+    assert not list(tmp_path.glob("**/SKILL.md"))
+
+
+def test_init_keeps_the_cases_directory_clonable(tmp_path: Path) -> None:
+    """git records no empty directory, so the convention would not survive."""
+    from shakedown.scaffold import scaffold
+
+    scaffold(tmp_path / "shakedown.toml", "claude-code")
+    assert (tmp_path / "shakedowns" / ".gitkeep").is_file()
+
+
+def test_init_refuses_a_harness_it_cannot_write(tmp_path: Path) -> None:
+    """Naming the ones it knows beats writing an empty config."""
+    from shakedown.scaffold import scaffold
+
+    with pytest.raises(ValueError, match="claude-code"):
+        scaffold(tmp_path / "shakedown.toml", "no-such-harness")
+    assert not (tmp_path / "shakedown.toml").exists()
 
 
 def test_init_refuses_to_overwrite(tmp_path: Path) -> None:
     """Refuse rather than guess: a scaffold must never eat existing work."""
     from shakedown.scaffold import scaffold
 
-    scaffold(tmp_path / "my-skill", tmp_path / "shakedown.toml")
-    (tmp_path / "my-skill" / "SKILL.md").write_text("mine")
+    config = tmp_path / "shakedown.toml"
+    scaffold(config, "claude-code")
+    config.write_text("mine")
 
-    with pytest.raises(FileExistsError, match=r"SKILL\.md"):
-        scaffold(tmp_path / "my-skill", tmp_path / "shakedown.toml")
-    assert (tmp_path / "my-skill" / "SKILL.md").read_text() == "mine"
+    with pytest.raises(FileExistsError, match=r"shakedown\.toml"):
+        scaffold(config, "gemini-cli")
+    assert config.read_text() == "mine"
+
+
+def test_init_puts_cases_where_the_tool_looks_for_them(tmp_path: Path) -> None:
+    """`find_cases` searches for `shakedowns/` by name and nothing else.
+
+    A scaffold writing anywhere else produces a layout no later command can
+    discover, and the failure lands in `case run` with an error that
+    contradicts what `init` printed.
+    """
+    from shakedown.models import find_cases
+    from shakedown.scaffold import scaffold
+
+    scaffold(tmp_path / "shakedown.toml", "claude-code")
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(_cases("../my-skill"))
+
+    assert find_cases(skill) == tmp_path / "shakedowns" / "my-skill.cases.toml"
+
+
+def test_init_reports_a_write_it_could_not_make(tmp_path: Path) -> None:
+    """A traceback leaves a half-written config the retry then refuses."""
+    from typer.testing import CliRunner
+
+    from shakedown.cli import app
+
+    (tmp_path / "blocker").write_text("not a directory")
+    done = CliRunner().invoke(
+        app, ["init", "--harness", "claude-code", "--config", str(tmp_path / "blocker" / "s.toml")]
+    )
+
+    assert done.exit_code == 2
+    assert done.exception is None or isinstance(done.exception, SystemExit), done.output
+
+
+def test_init_through_the_cli_refuses_an_unknown_harness(tmp_path: Path) -> None:
+    """The exit code is the contract, and a traceback is not one."""
+    from typer.testing import CliRunner
+
+    from shakedown.cli import app
+
+    done = CliRunner().invoke(
+        app, ["init", "--harness", "nope", "--config", str(tmp_path / "shakedown.toml")]
+    )
+
+    assert done.exit_code == 2
+    assert "claude-code" in done.output, "the error has to name the ones it knows"
+    assert not (tmp_path / "shakedown.toml").exists()
+
+
+def _validate(path: Path) -> tuple[int, str]:
+    """`shakedown case validate`, as a user runs it."""
+    from typer.testing import CliRunner
+
+    from shakedown.cli import app
+
+    done = CliRunner().invoke(app, ["case", "validate", str(path)])
+    return done.exit_code, done.output
+
+
+def _write_cases(root: Path, body: str) -> Path:
+    """A cases file for the skill at `root/my-skill`."""
+    (root / "shakedowns").mkdir(exist_ok=True)
+    written = root / "shakedowns" / "my-skill.cases.toml"
+    written.write_text('skill = "../my-skill"\n' + body)
+    return written
+
+
+def test_validate_reports_what_each_case_measures(tmp_path: Path) -> None:
+    """The point is seeing, before spending, which checks a file exercises."""
+    skill = _skill_dir(tmp_path)
+    _write_cases(
+        tmp_path,
+        '[[case]]\nname="full"\nprompt="p"\ntool="t"\nartifact="A"\n'
+        '  [[case.answers]]\n  match="who"\n  reply="platform-team"\n',
+    )
+
+    code, output = _validate(skill)
+    assert code == 0
+    assert "tool_used" in output
+    assert "artifact_created" in output
+    assert "inputs_resolved" in output
+
+
+def test_validate_does_not_credit_a_check_the_run_will_not_score(tmp_path: Path) -> None:
+    """Answers with no artifact leave the reply nowhere to land.
+
+    `inputs_resolved` reports unsupported at run time, so crediting it here
+    would certify a case measuring nothing but skill_fired — the one dead
+    case knowable from the file alone.
+    """
+    skill = _skill_dir(tmp_path)
+    _write_cases(
+        tmp_path,
+        '[[case]]\nname="asks"\nprompt="p"\n'
+        '  [[case.answers]]\n  match="who"\n  reply="platform-team"\n',
+    )
+
+    code, output = _validate(skill)
+    assert code == 0
+    assert "inputs_resolved" not in output
+    assert "nothing but skill_fired" in output
+
+
+def test_validate_names_a_case_that_cannot_be_selected(tmp_path: Path) -> None:
+    """`--case` becomes pytest's `-k`, which parses an expression."""
+    skill = _skill_dir(tmp_path)
+    _write_cases(tmp_path, '[[case]]\nname="two words"\nprompt="p"\nartifact="A"\n')
+
+    code, output = _validate(skill)
+    assert code == 0
+    assert "whitespace" in output
+
+
+def test_validate_refuses_a_file_that_will_not_load(tmp_path: Path) -> None:
+    """Free to run, so it is the check CI puts beside the linters."""
+    skill = _skill_dir(tmp_path)
+    _write_cases(tmp_path, 'fixture = "../stubs"\n[[case]]\nname="c"\nprompt="p"\n')
+
+    code, output = _validate(skill)
+    assert code == 2
+    assert "fixture" in output
 
 
 def test_a_harness_declares_one_environment_not_two() -> None:
@@ -1307,6 +1493,51 @@ def test_fixtures_naming_a_missing_directory_are_refused(tmp_path: Path) -> None
         load_skill(skill)
 
 
+def test_a_cases_file_without_a_version_reads_as_the_first(tmp_path: Path) -> None:
+    """Versioning arrived after the files did, so the old ones still load.
+
+    The literal 1 is the point: an absent key means the pre-versioning
+    schema, which stays true after the constant moves. Asserting against
+    `CASES_VERSION` would pass for any value it ever takes and would say
+    a file written years ago is written against today's schema.
+    """
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(_cases("../my-skill"))
+    assert load_skill(skill).version == 1
+
+
+def test_a_version_older_than_this_build_still_loads(tmp_path: Path) -> None:
+    """Otherwise the first schema bump breaks every file already written.
+
+    Every cases file this repo ships says `version = 1`, and the docs tell
+    authors to write it, so refusing an older version would make the next
+    bump a breaking release for all of them.
+    """
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        "version = 1\n" + _cases("../my-skill")
+    )
+    assert load_skill(skill).version == 1
+
+
+def test_a_version_newer_than_this_build_is_refused(tmp_path: Path) -> None:
+    """Reading a newer file with an older reader measures the wrong thing.
+
+    Silently ignoring the version is the failure worth preventing: the
+    keys it does not know would drop, and the run would score checks the
+    author never wrote.
+    """
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        f"version = {CASES_VERSION + 1}\n" + _cases("../my-skill")
+    )
+    with pytest.raises(ConfigError, match="upgrade shakedown"):
+        load_skill(skill)
+
+
 def test_a_misspelled_file_level_key_is_refused(tmp_path: Path) -> None:
     """`fixture` for `fixtures` seeded no double and ran the real command."""
     skill = _skill_dir(tmp_path)
@@ -1452,21 +1683,29 @@ def test_the_container_home_is_not_the_workspace(monkeypatch: pytest.MonkeyPatch
     `--setting-sources project` drops it. Every run then reports "never
     activated" and the skill is blamed for the sandbox's mistake.
     """
-    from shakedown.sandbox import HOME, WORK, create
+    from shakedown.sandbox import create
 
     monkeypatch.setenv("FAKE_COUNTER", "/work/count.txt")
     declared = load_config(FAKE / "container.toml").harness["fake"]
-    box = create(declared, load_skill(FAKE / "skill"), backend="container")
+    skill = load_skill(FAKE / "skill")
+    box = create(declared, skill, backend="container")
+    # Asked of the container, in its own terms: comparing the constants to
+    # each other would pass whatever value HOME held, which is what the
+    # first version of this test did.
+    probe = (
+        '[ "$HOME" = "$PWD" ] && echo COLLIDE-CWD;'
+        f' [ -d "$HOME/{declared.skills}/{skill.name}" ] && echo COLLIDE-SKILL;'
+        f' [ -d "$PWD/{declared.skills}/{skill.name}" ] && echo SEEDED-IN-PROJECT;'
+        " echo done"
+    )
     try:
-        _, out, _ = box.exec(
-            ["sh", "-c", 'echo "cwd=$PWD home=$HOME"'], declared.environment(), 60.0
-        )
+        _, out, _ = box.exec(["sh", "-c", probe], declared.environment(), 60.0)
     finally:
         box.cleanup()
 
-    assert f"cwd={WORK}" in out, out
-    assert f"home={HOME}" in out, out
-    assert HOME != WORK, "the skill directory would be the user's config directory"
+    assert "SEEDED-IN-PROJECT" in out, out
+    assert "COLLIDE-CWD" not in out, "HOME is the workspace, so the project dir is also ~/"
+    assert "COLLIDE-SKILL" not in out, "the seeded skill sits under HOME, so it reads as a user one"
 
 
 @needs_docker

@@ -37,7 +37,10 @@ that shells out to its own CLI works without installing anything.
 
 ### 2. Write the first case
 
-A case is a prompt and what must be true afterwards.
+A case is a prompt and what must be true afterwards. The bundled
+[`create-cases`](../../skills/create-cases/SKILL.md) skill will draft the
+whole file by reading your skill — including any fixtures it needs — if you
+would rather start from something than from nothing.
 
 ```toml
 [[case]]
@@ -81,14 +84,14 @@ Two things to get right:
 ### 4. Run it
 
 ```bash
-shakedown run ./my-skill
+shakedown case run ./my-skill
 ```
 
 Start with one target and one repeat while you get the cases right. Widen
 after:
 
 ```bash
-shakedown run ./my-skill --repeat 5 --parallel 5
+shakedown case run ./my-skill --repeat 5 --parallel 5
 ```
 
 `--parallel` changes wall clock, not the number of model calls.
@@ -122,7 +125,7 @@ call. Add the permission flag to `start` in `shakedown.toml` — for Claude
 Code that is `--allowedTools` and `--permission-mode`.
 
 **A case hangs.** Each turn is bounded by `--timeout`, 300 seconds by
-default. Lower it while iterating: `shakedown run ./my-skill -- --timeout 60`.
+default. Lower it while iterating: `shakedown case run ./my-skill -- --timeout 60`.
 
 ## See also
 

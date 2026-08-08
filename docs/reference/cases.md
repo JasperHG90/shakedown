@@ -21,12 +21,32 @@ skill = "../examples/write-plan"
 ```
 
 The path is relative to the cases file, so the pair moves together. Either
-end is a usable argument: `shakedown run examples/write-plan` and
-`shakedown run shakedowns/write-plan.cases.toml` resolve to the same pair.
+end is a usable argument: `shakedown case run examples/write-plan` and
+`shakedown case run shakedowns/write-plan.cases.toml` resolve to the same pair.
 
 Searching upward means one `shakedowns/` at a repo root covers every skill
 nested under it, and a skill with a stale `cases.toml` still inside is not
 measured by it while the outer file exists.
+
+## `version`
+
+The schema the file is written against. A file without one reads as
+version 1, which is what a file written before versioning existed is.
+
+```toml
+version = 1
+```
+
+A version **newer** than the build reading it is refused, because an old
+reader cannot know what changed. An unknown *key* it would refuse anyway,
+since a cases file forbids keys it does not recognize — the case this
+guards is subtler: a key that still parses but now means something else,
+which an old reader would act on with the old meaning and report a pass
+for a check the author did not write.
+
+An **older** version always loads. Refusing one would make every schema
+bump a breaking change for every cases file already written, which is the
+opposite of what recording a version is for.
 
 ## What a case declares
 
@@ -35,6 +55,7 @@ check it does not declare reports `unsupported` rather than failing.
 
 | Key | Type | Default | Declares | Omitting it means |
 |---|---|---|---|---|
+| `version` | int | `1` | The cases schema this file is written against | Read as version 1 |
 | `skill` | string | required outside the skill | The skill directory these cases measure, relative to this file | Resolved from the skill's own directory instead |
 | `fixtures` | string or list | none | Directories of stand-in executables, seeded onto PATH ahead of the real ones, in the order given. See [fixtures](#fixtures) | The skill calls the real commands |
 | `name` | string | required | The case's identity, matched by `--case` | — |

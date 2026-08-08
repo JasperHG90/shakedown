@@ -1,61 +1,135 @@
 # Your first run
 
-You will scaffold a skill, check that your harness can be measured at all,
-run the skill against it, and read the matrix that comes back.
+You will build a tiny skill, describe your harness, write cases for the
+skill, check that the harness can be measured at all, and read the matrix
+that comes back.
 
-This costs real money — every scenario is a live model call. The scaffolded
-skill has two cases, so one run is two calls. Expect a few cents.
+This costs real money — every scenario is a live model call. You will write
+two cases, so one run is two calls. Expect a few cents.
 
 ## Prerequisites
 
 - shakedown installed, and `shakedown --version` prints a version.
   See [Install shakedown](../how-to/install.md).
-- Claude Code on your PATH, authenticated. The scaffold targets it by
-  default. Any other harness works too, but you will edit
-  `shakedown.toml` first — see [Add a harness](../how-to/add-a-harness.md).
+- Claude Code on your PATH, authenticated. Any other harness works too;
+  pass its name to `init` below.
 
-## 1. Scaffold a skill
+## 1. Make a skill worth measuring
 
-Make an empty directory and scaffold into it:
+A real skill of your own works here. If you would rather not experiment on
+one, this is a small one that exercises everything shakedown checks: it has
+to ask for what it was not told, and it has to go through a CLI rather than
+writing the file itself.
 
 ```bash
-mkdir shakedown-tutorial && cd shakedown-tutorial
-shakedown init
+mkdir -p shakedown-tutorial/my-skill/bin && cd shakedown-tutorial
+cat > my-skill/SKILL.md <<'MD'
+---
+name: my-skill
+description: Write a short note (NOTE.md) recording a subject and its author. Use when someone asks to jot down, record, or write up a note.
+---
+
+# my-skill
+
+## Write it with notectl, never yourself
+
+    notectl write --subject "<subject>" --author "<author>"
+
+The CLI owns the file's format, so do not create or edit NOTE.md with your
+own tools.
+
+## Ask for what you were not told
+
+If you were not told who the author is, ask. Do not guess one.
+MD
+
+cat > my-skill/bin/notectl <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+subject="" author=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    write) shift ;;
+    --subject) subject="$2"; shift 2 ;;
+    --author) author="$2"; shift 2 ;;
+    *) echo "notectl: unknown argument $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$subject" ] && [ -n "$author" ] || { echo "notectl: --subject and --author are required" >&2; exit 2; }
+printf '# %s\n\nRecorded by %s.\n' "$subject" "$author" > NOTE.md
+echo "notectl: wrote NOTE.md"
+SH
+chmod +x my-skill/bin/notectl
+```
+
+Two files, and they are the two kinds a skill has: `SKILL.md` is what the
+agent is told, and `bin/` holds what it is told to run. Anything in `bin/`
+is copied into the run's workspace and put on PATH, so nothing needs
+installing.
+
+## 2. Describe the harness
+
+```bash
+shakedown init --harness claude-code
 ```
 
 ```
-  + my-skill/SKILL.md
-  + my-skill/bin/notectl
   + shakedown.toml
-  + shakedowns/my-skill.cases.toml
-
-next: shakedown doctor, then shakedown run my-skill
+  + shakedowns/.gitkeep
 ```
 
-Four files. Two of them are the skill, the part a user would install:
+`shakedown.toml` describes the harness and nothing else — it never mentions
+your skill, because the skill is a path you pass on the command line.
+`shakedowns/` is where cases go.
+
+## 3. Write the cases
+
+A case is a prompt and what must be true afterwards. Write two: one where
+the agent is told everything, and one where it is not.
+
+```bash
+cat > shakedowns/my-skill.cases.toml <<'TOML'
+version = 1
+skill   = "../my-skill"
+
+[[case]]
+name     = "fully-specified"
+prompt   = "Write a note about the Q4 rollout. Author: platform-team."
+artifact = "NOTE.md"
+tool     = "notectl"
+
+[[case]]
+name     = "missing-author"
+prompt   = "Write a note about the Q4 rollout."
+tool     = "notectl"
+
+  [[case.artifacts]]
+  path     = "NOTE.md"
+  contains = ["platform-team"]
+
+  [[case.answers]]
+  match = "(?i)\\bauthor\\b|who wrote"
+  reply = "platform-team"
+TOML
+
+shakedown case validate shakedowns/my-skill.cases.toml
+```
 
 ```
-my-skill/
-  SKILL.md      what the agent is told to do
-  bin/notectl   the CLI the skill must go through
+ok my-skill: 2 case(s), version 1
+  fully-specified: tool_used, artifact_created
+  missing-author: tool_used, artifact_created, inputs_resolved
 ```
 
-The third, `shakedowns/my-skill.cases.toml`, is what the skill is measured
-against. It sits outside the skill for the same reason tests sit outside
-the code they test, and it names its subject at the top:
+The second case is the one worth the effort. `platform-team` appears
+nowhere in its prompt, so the only way that string reaches `NOTE.md` is if
+the harness asked and used the answer.
 
-```toml
-skill = "../my-skill"
-```
+The bundled [`create-cases`](../../skills/create-cases/SKILL.md) skill
+drafts this file for you by reading a skill; writing one by hand once is
+the better way to understand what it produces.
 
-The fourth, `shakedown.toml`, describes the harness. Nothing in it mentions
-your skill — the skill is a path you pass on the command line.
-
-This scaffold is not a template with holes in it. It is a working skill that
-asks for what it was not told and writes its file through `notectl`, so your
-first run measures something real.
-
-## 2. Check the harness
+## 4. Check the harness
 
 Before measuring a skill, find out whether the harness can be measured at
 all:
@@ -90,10 +164,10 @@ skill zero for reasons that have nothing to do with your skill.
 Row 6 never fails. It reports how many other skills the model could see,
 which on the default sandbox is usually your own installed ones.
 
-## 3. Run the skill
+## 5. Run the skill
 
 ```bash
-shakedown run my-skill
+shakedown case run my-skill
 ```
 
 Two cases, one target, so two live calls. It takes a minute or two:
@@ -134,7 +208,7 @@ temporary directory on your machine, so the harness could see your other
 installed skills. [Run in a container](../how-to/isolate-runs-in-a-container.md)
 when you want that removed.
 
-## 4. Make it fail
+## 6. Make it fail
 
 A green matrix on the first try tells you little. Break the skill and watch
 the number move.
@@ -144,7 +218,7 @@ never yourself` section — the part telling the agent it may not write the
 file itself. Save, and run one case:
 
 ```bash
-shakedown run my-skill --case fully-specified
+shakedown case run my-skill --case fully-specified
 ```
 
 The agent now has no reason to use the CLI, and writes `NOTE.md` itself:
@@ -197,8 +271,8 @@ tool calls, and what the agent said.
 
 ## Next steps
 
-- [Measure your own skill](../how-to/measure-your-own-skill.md) — replace
-  the scaffold with the thing you actually ship.
+- [Measure your own skill](../how-to/measure-your-own-skill.md) — point it
+  at the thing you actually ship.
 - [Add a harness](../how-to/add-a-harness.md) — measure a second one, which
   is the point of the tool.
 - [What shakedown measures](../explanation/what-shakedown-measures.md) — why

@@ -1,20 +1,23 @@
-"""`shakedown init`: a config and a starter skill.
+"""`shakedown init`: a config for one harness, and somewhere to put cases.
 
-The scaffold is runnable rather than illustrative, and shaped after
-`examples/write-plan`: a skill that must ask for what it was not given and
-must go through a CLI to write its artifact. `shakedown run ./my-skill` is
-therefore a real measurement on the first try, not a template to fill in.
+It writes no skill. The skill under test is yours and already exists; what
+a fresh repository is missing is the harness description and the directory
+cases live in. Writing a specimen skill instead meant the first run
+measured a scaffold nobody shipped.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from shakedown.models import CASES_DIR, CASES_SUFFIX
+from shakedown.models import CASES_DIR
 
-CONFIG = """\
-# Harnesses only. The skill under test is a path given to the entrypoint.
+_HEADER = """\
+# Harnesses only. The skill under test is a path given to the entrypoint,
+# and its cases live in `{cases_dir}/<slug>.cases.toml`.
+"""
 
+CLAUDE_CODE = """\
 [harness.claude-code]
 start = [
   "claude", "-p", "{prompt}",
@@ -42,6 +45,10 @@ activation_tool = "Skill"
 
 [harness.claude-code.env]
 HOME = "${HOME}"
+# In a container nothing is inherited, and on macOS a subscription login
+# lives in the Keychain rather than under $HOME. Mint a token instead:
+#   export CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token)
+# CLAUDE_CODE_OAUTH_TOKEN = "${CLAUDE_CODE_OAUTH_TOKEN}"
 
 [harness.claude-code.events]
 container = "message.content"
@@ -51,124 +58,125 @@ harness = "claude-code"
 models  = ["claude-opus-5"]
 """
 
-SKILL = """\
----
-name: {name}
-description: Write a short note (NOTE.md) recording a subject and its author. \
-Use when someone asks to jot down, record, or write up a note.
----
+GEMINI_CLI = """\
+[harness.gemini-cli]
+start = [
+  "gemini", "-p", "{prompt}",
+  "--output-format", "stream-json",
+  "--model", "{model}",
+  "--approval-mode", "yolo",
+  "--skip-trust",
+  "--session-id", "{sid}",
+]
+resume = [
+  "gemini", "-p", "{reply}",
+  "--output-format", "stream-json",
+  "--model", "{model}",
+  "--approval-mode", "yolo",
+  "--skip-trust",
+  "--resume", "{sid}",
+]
+skills = ".gemini/skills"
+activation_tool = "activate_skill"
+# For `--sandbox container`, declare exactly one of:
+#   image      = "ghcr.io/you/gemini-cli:0.47.0"
+#   dockerfile = "docker/gemini-cli.Dockerfile"
 
-# {name}
+[harness.gemini-cli.env]
+HOME = "${HOME}"
 
-A note needs two facts: what it is about, and who wrote it.
+# Flat records, not blocks nested under a message. Leaving `container`
+# unset is what selects that shape.
+[harness.gemini-cli.events]
+discriminator = "type"
+tool_marker   = "tool_use"
+name_key      = "tool_name"
+args_key      = "parameters"
+text_marker   = "message"
+text_key      = "content"
 
-## Ask for what you were not given
-
-Take whatever the request already supplies. For anything missing, ask the
-user before writing, and wait for their answer.
-
-Do not invent a value and do not substitute a placeholder like "TBD".
-
-## Write it with notectl, never yourself
-
-`NOTE.md` is written only by the CLI:
-
-```
-notectl write --subject <subject> --author <author>
-```
-
-Do not create or edit `NOTE.md` with your own file-writing tools, and do
-not write it through a shell redirect. The CLI owns the file's format.
+[[matrix]]
+harness = "gemini-cli"
+models  = ["gemini-3.6-flash"]
 """
 
-CASES = """\
-# The skill these cases measure, relative to this file. Cases are what the
-# skill is measured against rather than part of what ships, so they live
-# out here. A skill that keeps `cases.toml` inside itself still works;
-# this location is simply looked for first.
-skill = "../{name}"
+OPENCODE = """\
+# opencode has no flag to set the session id, so the id shakedown generates
+# never reaches it and `--continue` resumes instead. That is safe because a
+# sandbox is a fresh directory holding exactly one session.
+[harness.opencode]
+start = [
+  "opencode", "run", "{prompt}",
+  "--format", "json",
+  "--model", "{model}",
+  "--auto",
+]
+resume = [
+  "opencode", "run", "{reply}",
+  "--format", "json",
+  "--model", "{model}",
+  "--auto",
+  "--continue",
+]
+skills = ".opencode/skills"
+activation_tool = "skill"
+# For `--sandbox container`, declare exactly one of:
+#   image      = "ghcr.io/you/opencode:1.18.15"
+#   dockerfile = "docker/opencode.Dockerfile"
 
-# A case is a prompt and what must be true afterwards.
-# Every check is optional: declare only what applies.
+[harness.opencode.env]
+HOME = "${HOME}"
 
-[[case]]
-name     = "fully-specified"
-prompt   = "Write a note about the Q4 rollout. Author: platform-team."
-artifact = "NOTE.md"
-tool     = "notectl"
+# The call is a top-level record, but its name and arguments sit under a
+# `part` object, so those keys are dotted paths.
+[harness.opencode.events]
+name_key = "part.tool"
+args_key = "part.state.input"
+text_key = "part.text"
 
-# Withhold something the skill needs, and say how to answer when asked.
-# The proof is that the reply reaches the artifact: it is supplied only in
-# answer to a question, so it cannot appear unless the harness asked.
-[[case]]
-name   = "missing-author"
-prompt = "Write a note about the Q4 rollout."
-tool   = "notectl"
-
-  [[case.artifacts]]
-  path     = "NOTE.md"
-  contains = ["Q4 rollout"]
-
-  [[case.answers]]
-  match = "(?i)\\\\bauthor\\\\b|who wrote|who is writing"
-  reply = "platform-team"
+[[matrix]]
+harness = "opencode"
+models  = ["opencode/big-pickle"]
 """
 
-CLI = '''\
-#!/usr/bin/env python3
-"""Render NOTE.md from a fixed template. The deterministic half."""
-
-import argparse
-import sys
-from pathlib import Path
-
-TEMPLATE = """# {subject}
-
-- **Author:** {author}
-"""
+#: The harnesses `init` can write. Adding one is a block here plus a name.
+HARNESSES = {
+    "claude-code": CLAUDE_CODE,
+    "gemini-cli": GEMINI_CLI,
+    "opencode": OPENCODE,
+}
 
 
-def main() -> int:
-    """Write NOTE.md, or refuse."""
-    p = argparse.ArgumentParser(prog="notectl")
-    sub = p.add_subparsers(dest="cmd", required=True)
-    w = sub.add_parser("write")
-    w.add_argument("--subject", required=True)
-    w.add_argument("--author", required=True)
-    w.add_argument("--dir", default=".")
-    a = p.parse_args()
+def scaffold(config: Path, harness: str) -> list[Path]:
+    """Write the config and the cases directory. Refuses to overwrite.
 
-    target = Path(a.dir) / "NOTE.md"
-    if target.exists():
-        print(f"{target} exists; refusing to overwrite", file=sys.stderr)
-        return 3
-    target.write_text(TEMPLATE.format(subject=a.subject, author=a.author))
-    print(f"wrote {target}")
-    return 0
+    The cases directory is always `shakedowns/`, beside the config, and is
+    not configurable: `find_cases` looks for that name and nothing else, so
+    a scaffold that wrote anywhere else would produce a layout the rest of
+    the tool cannot discover.
 
+    The `.gitkeep` is what makes it survive a clone. An empty directory is
+    not a thing git records, and a `shakedowns/` that vanishes takes the
+    convention with it.
+    """
+    if harness not in HARNESSES:
+        known = ", ".join(HARNESSES)
+        raise ValueError(f"unknown harness {harness!r}; choose one of: {known}")
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-'''
-
-
-def scaffold(skill_dir: Path, config: Path) -> list[Path]:
-    """Write the config and the starter skill. Refuses to overwrite."""
     files = {
-        skill_dir / "SKILL.md": SKILL.format(name=skill_dir.name),
-        skill_dir.parent / CASES_DIR / f"{skill_dir.name}{CASES_SUFFIX}": CASES.format(
-            name=skill_dir.name
-        ),
-        skill_dir / "bin" / "notectl": CLI,
+        config: _HEADER.format(cases_dir=CASES_DIR) + "\n" + HARNESSES[harness],
+        config.parent / CASES_DIR / ".gitkeep": "",
     }
-    if not config.exists():
-        files[config] = CONFIG
-
     if clashes := sorted(str(p) for p in files if p.exists()):
         raise FileExistsError("refusing to overwrite: " + ", ".join(clashes))
 
-    for path, text in files.items():
+    # Directories first: a write that fails halfway leaves a config behind
+    # that the retry then refuses to overwrite, wedging the user.
+    for path in files:
         path.parent.mkdir(parents=True, exist_ok=True)
+    for path, text in files.items():
         path.write_text(text)
-    (skill_dir / "bin" / "notectl").chmod(0o755)
     return sorted(files)
+
+
+__all__ = ["CASES_DIR", "HARNESSES", "scaffold"]

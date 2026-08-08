@@ -111,7 +111,7 @@ runs:
         SHAKEDOWN_SANDBOX: ${{ inputs.sandbox }}
         SHAKEDOWN_REPORT: ${{ inputs.report }}
       run: |
-        args=(run "$SHAKEDOWN_SKILL" --report "$SHAKEDOWN_REPORT"
+        args=(case run "$SHAKEDOWN_SKILL" --report "$SHAKEDOWN_REPORT"
               --sandbox "$SHAKEDOWN_SANDBOX" --parallel "$SHAKEDOWN_PARALLEL")
         if [ -n "$SHAKEDOWN_CONFIG" ]; then args+=(--config "$SHAKEDOWN_CONFIG"); fi
         if [ -n "$SHAKEDOWN_HARNESS" ]; then args+=(--harness "$SHAKEDOWN_HARNESS"); fi

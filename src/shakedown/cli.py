@@ -10,8 +10,9 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from shakedown.console import checks_table, console
-from shakedown.models import ConfigError, Harness, load_config
+from shakedown.models import CASES_DIR, ConfigError, Harness, load_config
 from shakedown.report import REPORT_NAME
+from shakedown.scaffold import HARNESSES, scaffold
 
 if TYPE_CHECKING:
     from shakedown.doctor import Diagnosis
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 # No no_args_is_help: click would print the help and exit before the callback
 # runs, and the banner would never appear.
 app = typer.Typer(add_completion=False)
+case_app = typer.Typer(add_completion=False, help="Work with a cases file: check it, or run it.")
+app.add_typer(case_app, name="case")
 TESTS = Path(__file__).parent / "conformance.py"
 
 
@@ -41,8 +44,8 @@ def root(
         raise typer.Exit(0)
 
 
-@app.command()
-def run(
+@case_app.command("run")
+def case_run(
     skill: Annotated[
         Path, typer.Argument(help="the skill under test, or the cases file naming it")
     ],
@@ -93,25 +96,80 @@ def run(
     raise typer.Exit(subprocess.run([*argv, *(pytest_args or [])], check=False).returncode)
 
 
+@case_app.command("validate")
+def case_validate(
+    path: Annotated[Path, typer.Argument(help="the cases file, or the skill whose cases to check")],
+) -> None:
+    """Check a cases file without running anything. Spends nothing."""
+    from shakedown.models import load_skill
+
+    try:
+        skill = load_skill(path)
+    except ConfigError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+
+    console.print(f"[green]ok[/] {skill.name}: {len(skill.cases)} case(s), version {skill.version}")
+    seen: set[str] = set()
+    for case in skill.cases:
+        checks = [
+            "tool_used" if case.tool else "",
+            "artifact_created" if case.artifacts else "",
+            # Answers alone prove nothing: the reply reaching an artifact is
+            # the evidence, so with no artifact the run reports unsupported.
+            # Saying otherwise here would certify a case that measures
+            # nothing, which is the one thing this command exists to catch.
+            "inputs_resolved" if case.answers and case.artifacts else "",
+        ]
+        measured = ", ".join(c for c in checks if c) or "[yellow]nothing but skill_fired[/]"
+        console.print(f"  [cyan]{case.name}[/]: {measured}")
+        if case.answers and not case.artifacts:
+            console.print(
+                "    [yellow]answers with no artifact:[/] the reply has nowhere to land, "
+                "so asking is measured as unsupported"
+            )
+        if case.name in seen:
+            console.print(f"    [yellow]duplicate name:[/] two cases called {case.name!r}")
+        seen.add(case.name)
+        # `--case` becomes pytest's `-k`, which parses an expression: a name
+        # with a space or a keyword in it cannot be selected.
+        if unselectable := _unselectable(case.name):
+            console.print(f"    [yellow]{unselectable}:[/] `--case {case.name}` will not select it")
+    for fixture in skill.fixtures:
+        console.print(f"  [dim]fixtures:[/] {fixture}")
+
+
+def _unselectable(name: str) -> str:
+    """Why pytest's `-k` could not take this case name, if it could not."""
+    if any(ch.isspace() for ch in name):
+        return "whitespace in the name"
+    if name in {"not", "and", "or"}:
+        return "a `-k` keyword as the name"
+    return ""
+
+
 @app.command()
 def init(
-    skill: Annotated[Path, typer.Argument(help="where to scaffold the skill")] = Path("my-skill"),
+    harness: Annotated[
+        str, typer.Option("--harness", help="the harness to describe: " + ", ".join(HARNESSES))
+    ],
     config: Annotated[Path, typer.Option("--config", help="where to write shakedown.toml")] = Path(
         "shakedown.toml"
     ),
 ) -> None:
-    """Scaffold a config and a skill that already passes."""
-    from shakedown.scaffold import scaffold
-
+    """Scaffold a config for one harness, and the directory cases live in."""
     try:
-        written = scaffold(skill, config)
-    except FileExistsError as exc:
+        written = scaffold(config, harness)
+    except (ValueError, FileExistsError, OSError) as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(2) from exc
 
     for path in written:
         console.print(f"  [green]+[/] {path}")
-    console.print(f"\nnext: [cyan]shakedown doctor[/], then [cyan]shakedown run {skill}[/]")
+    console.print(
+        f"\nnext: [cyan]shakedown doctor[/], then write "
+        f"[cyan]{CASES_DIR}/<slug>.cases.toml[/] naming the skill it measures"
+    )
 
 
 def _diagnose(name: str, harness: Harness, *, model: str, sandbox: str) -> Diagnosis:
