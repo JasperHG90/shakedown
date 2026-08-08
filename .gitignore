@@ -9,3 +9,6 @@ dist/
 shakedown-report.json
 *-report.json
 *.shards/
+
+# The vendored hook script imports as a module during tests.
+plugins/**/__pycache__/

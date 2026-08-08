@@ -459,6 +459,56 @@ def test_each_manifest_matches_its_own_harness_tool_names(
     assert found == expected
 
 
+@pytest.mark.parametrize("plugin", ["claude-code", "gemini"])
+def test_a_plugin_carries_everything_it_needs(plugin: str) -> None:
+    """Installing a plugin copies its directory and nothing else.
+
+    Both harnesses do this, so a hook command reaching outside the plugin
+    finds nothing once installed — and on the pre-tool hook that failure
+    exits 2, the block code, refusing every shell command in the session.
+    Confirmed by installing from the marketplace and looking in the cache:
+    the copy held exactly the two manifest files and no script.
+    """
+    root = REPO / "plugins" / plugin
+    assert (root / "scripts/shakedown_hooks.py").is_file()
+    assert (root / "skills/add-harness/SKILL.md").is_file()
+    assert (root / "skills/create-cases/SKILL.md").is_file()
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        REPO / "plugins/claude-code/hooks/hooks.json",
+        REPO / "plugins/gemini/hooks/hooks.json",
+    ],
+    ids=["claude-code", "gemini"],
+)
+def test_no_hook_reaches_outside_its_plugin(manifest: Path) -> None:
+    """`..` in a command is a path that exists in the clone and nowhere else."""
+    for group in json.loads(manifest.read_text())["hooks"].values():
+        for matcher in group:
+            for entry in matcher["hooks"]:
+                assert "/../" not in entry["command"], entry["command"]
+
+
+def test_plugins_are_in_sync() -> None:
+    """Vendoring means copies, and copies drift.
+
+    The alternative — one shared file referenced from both — is what made
+    the installed plugin unusable, so the duplication is deliberate and
+    this is what keeps it honest.
+    """
+    sync = importlib.util.spec_from_file_location("sync", REPO / "plugins/sync.py")
+    assert sync and sync.loader
+    module = importlib.util.module_from_spec(sync)
+    sys.modules[sync.name] = module
+    sync.loader.exec_module(module)
+
+    behind = module.stale()
+    named = ", ".join(str(path.relative_to(REPO)) for path in behind)
+    assert not behind, f"run `python plugins/sync.py`: {named}"
+
+
 @pytest.mark.parametrize(
     "manifest",
     [
@@ -504,7 +554,8 @@ def test_a_manifest_points_at_the_script_that_is_there(manifest: Path) -> None:
                 for variable, root in roots.items():
                     command = command.replace(variable, str(root))
                 path = Path(shlex.split(command)[1])
-                assert path.resolve() == SCRIPT, f"{manifest.name} points at {path}"
+                vendored = manifest.parent.parent / "scripts/shakedown_hooks.py"
+                assert path.resolve() == vendored.resolve(), f"{manifest.name} points at {path}"
 
 
 def test_the_script_runs_as_a_program(tmp_path: Path) -> None:

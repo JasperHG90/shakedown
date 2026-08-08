@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${extensionPath}/../scripts/shakedown_hooks.py\" session-start"
+            "command": "python3 \"${extensionPath}/scripts/shakedown_hooks.py\" session-start"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${extensionPath}/../scripts/shakedown_hooks.py\" after-write"
+            "command": "python3 \"${extensionPath}/scripts/shakedown_hooks.py\" after-write"
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${extensionPath}/../scripts/shakedown_hooks.py\" before-bash"
+            "command": "python3 \"${extensionPath}/scripts/shakedown_hooks.py\" before-bash"
           }
         ]
       }

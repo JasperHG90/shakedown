@@ -56,8 +56,11 @@ python_version = "3.11"
 mypy_path = "src"
 # `plugins` is here because the hook scripts ship as files rather than as
 # part of the package, and an unchecked script is exactly where a silent
-# hook failure hides.
+# hook failure hides. The vendored copies are excluded rather than checked
+# three times over: they are byte-identical to the original by test, and
+# three modules of the same name is an error rather than more coverage.
 files = ["src/shakedown", "tests", "plugins"]
+exclude = "plugins/(claude-code|gemini)/"
 strict = true
 
 [tool.pytest.ini_options]

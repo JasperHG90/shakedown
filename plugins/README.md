@@ -24,15 +24,26 @@ so the repository root carries a `.claude-plugin/marketplace.json` naming
 this one. `--plugin-dir` is the development form: it loads the directory
 directly, which is what you want while changing the hooks.
 
-Both read the shared scripts through their own root variable
-(`${CLAUDE_PLUGIN_ROOT}`, `${extensionPath}`), which resolves to the plugin
-directory, so the scripts are one level up at `plugins/scripts/`.
+### Each plugin stands alone, and that means copies
 
-`gemini extensions install` copies the directory into
-`~/.gemini/extensions/`, which leaves the `../scripts` reference pointing
-at nothing; `link` resolves the root back to the clone, so it keeps
-working. Publishing either plugin standalone would mean vendoring the
-script into it.
+Installing copies the plugin directory and nothing else — I checked the
+cache after a marketplace install and found exactly the two manifest
+files. So a hook command reaching outside its own directory finds nothing
+once installed, and on the `PreToolUse` hook that failure exits 2, the
+block code: every shell command in the session refused, by a plugin meant
+to save money.
+
+The script and both skills are therefore vendored into each plugin rather
+than shared by reference. Copies drift, so `plugins/sync.py` writes them
+and a test fails when they are stale:
+
+```bash
+python plugins/sync.py           # write the copies
+python plugins/sync.py --check   # what CI asks
+```
+
+Edit the originals — `plugins/scripts/shakedown_hooks.py`, `skills/*` —
+and sync. Editing a copy is what the test is there to catch.
 
 Both root variables are substituted as plain text into a command the
 harness then hands to a shell, so the path is quoted in every hook. Without
