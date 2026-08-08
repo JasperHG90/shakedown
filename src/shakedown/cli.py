@@ -19,8 +19,14 @@ if TYPE_CHECKING:
 
 # No no_args_is_help: click would print the help and exit before the callback
 # runs, and the banner would never appear.
-app = typer.Typer(add_completion=False)
-case_app = typer.Typer(add_completion=False, help="Work with a cases file: check it, or run it.")
+app = typer.Typer(
+    add_completion=True,
+    no_args_is_help=False,
+    help="Smoke-test agent skills across harnesses and models.",
+)
+case_app = typer.Typer(
+    add_completion=True, help="Work with a cases file: check it, or run it.", no_args_is_help=True
+)
 app.add_typer(case_app, name="case")
 TESTS = Path(__file__).parent / "conformance.py"
 
@@ -192,7 +198,7 @@ def _diagnose(name: str, harness: Harness, *, model: str, sandbox: str) -> Diagn
 
 @app.command()
 def summary(
-    report: Annotated[Path, typer.Argument(help="a report written by `shakedown run`")] = Path(
+    report: Annotated[Path, typer.Argument(help="a report written by `shakedown case run`")] = Path(
         REPORT_NAME
     ),
 ) -> None:

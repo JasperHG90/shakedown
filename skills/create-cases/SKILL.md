@@ -214,9 +214,23 @@ Then check it, which costs nothing:
 shakedown case validate shakedowns/<slug>.cases.toml
 ```
 
-It prints each case and the checks it measures. A case listed as measuring
-"nothing but skill_fired" is a case that will pass no matter what the skill
-does — go back and give it something to prove.
+It prints each case and the checks it measures. This is free and
+deterministic, so run it after every edit rather than once at the end, and
+do not offer the paid run until it is clean.
+
+Read all of what it says, not just the exit code:
+
+- **It exits 2.** The file does not load. The message names the key and,
+  where there is one, the remedy — a `fixtures` path that is not a
+  directory, a `skill` that resolves to something without a `SKILL.md`, a
+  key placed under a `[[case]]` that belongs above the first one. Fix and
+  re-run; do not work around it by deleting the key.
+- **A case measures "nothing but skill_fired".** It will pass no matter
+  what the skill does. Give it something to prove, or delete it.
+- **"answers with no artifact".** The reply has nowhere to land, so asking
+  is not measured. Add the artifact the answer should reach.
+- **A name it warns about.** Whitespace or a duplicate means `--case`
+  cannot select that case later.
 
 ## Step 6: Offer to run it
 

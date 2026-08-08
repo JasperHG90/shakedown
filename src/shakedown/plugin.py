@@ -44,8 +44,8 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
     A run is minutes of silence otherwise: one scenario is a whole model
     round trip per turn. Capture has to be off for the animation to reach
-    the terminal rather than a discarded buffer, which is why `shakedown run`
-    passes `-s`. Under xdist the workers share one terminal, so the
+    the terminal rather than a discarded buffer, which is why `shakedown
+    case run` passes `-s`. Under xdist the workers share one terminal, so the
     controller stays quiet rather than interleaving several spinners.
     """
     config = session.config

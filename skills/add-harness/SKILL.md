@@ -239,6 +239,36 @@ Work the failing number:
   which on the `tmp` sandbox includes everything installed on the host. Use
   `--sandbox container` when that contamination matters.
 
+If `doctor` prints "has no `[[matrix]]` entry, so there is no model to
+check it with", the harness is described but nothing names a model for it.
+Add a `[[matrix]]` entry, or pass `--model` for a one-off check.
+
+### Qualifying on `tmp` does not mean qualifying in a container
+
+The sandbox is part of what you are configuring, and prerequisite 2 is a
+different question in each. A harness can surface the skill perfectly on
+`tmp` and never surface it in a container, because the container has a
+different filesystem, a different `HOME`, and none of the host's
+configuration. Every run then reports "never activated" and the skill
+looks broken when the sandbox is at fault.
+
+So if you intend to use `--sandbox container`, qualify it there too —
+**but only once the credential is declared**, because a container inherits
+nothing:
+
+```toml
+[harness.my-harness.env]
+MY_AGENT_TOKEN = "${MY_AGENT_TOKEN}"
+```
+
+Without that, `doctor --sandbox container` fails on authentication, which
+tells you nothing about discovery and is easy to misread as a harness that
+does not qualify. Get the credential in first, confirm the harness runs at
+all in the image, and only then trust what prerequisite 2 says there. A
+subscription login is the awkward case: on macOS it lives in the Keychain
+rather than in a file, so no amount of mounting carries it in and the
+harness needs a token it can read from the environment.
+
 ## Pointing an existing harness at a different provider
 
 Same binary, different model behind it. This is what separates harness
