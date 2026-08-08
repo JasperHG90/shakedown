@@ -36,7 +36,7 @@ check it does not declare reports `unsupported` rather than failing.
 | Key | Type | Default | Declares | Omitting it means |
 |---|---|---|---|---|
 | `skill` | string | required outside the skill | The skill directory these cases measure, relative to this file | Resolved from the skill's own directory instead |
-| `fixtures` | string | none | A directory of stand-in executables, seeded onto PATH ahead of the real ones. See [fixtures](#fixtures) | The skill calls the real commands |
+| `fixtures` | string or list | none | Directories of stand-in executables, seeded onto PATH ahead of the real ones, in the order given. See [fixtures](#fixtures) | The skill calls the real commands |
 | `name` | string | required | The case's identity, matched by `--case` | — |
 | `prompt` | string | required | What the agent is asked | — |
 | `tool` | string | none | The CLI the skill must go through | `tool_used` reports `unsupported` |
@@ -72,6 +72,21 @@ PATH, so it also shadows anything installed on the machine or in the image.
 ```toml
 fixtures = "fixtures/register-service"
 ```
+
+Several directories are allowed, and they are copied in the order written,
+so a later one overrides a same-named stand-in from an earlier one. That
+is how a double shared between skills combines with the ones only this
+skill needs:
+
+```toml
+fixtures = ["fixtures/common", "fixtures/register-service"]
+```
+
+Sharing needs nothing else: two cases files naming the same directory both
+get it. A shared double has to locate the workspace itself rather than
+assume one skill's layout — `WORK="$(cd "$(dirname "$0")/.." && pwd)"`
+does it, since `bin/` is where it was seeded — and anything it builds
+belongs in that workspace, which is per run, so two skills cannot collide.
 
 This is how a skill with side effects gets measured. `register-service`
 clones a shared repository, edits it, commits, pushes, and opens a pull

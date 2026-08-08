@@ -141,8 +141,8 @@ def test_every_gh_verb_the_example_calls_has_an_arm_in_its_double() -> None:
     asserts nothing the skill calls lands there.
     """
     skill = load_skill(REPO / "shakedowns/register-service.cases.toml")
-    assert skill.fixtures is not None
-    double = skill.fixtures / "gh"
+    double = next((d / "gh" for d in skill.fixtures if (d / "gh").is_file()), None)
+    assert double is not None, "the example measures a skill that shells out to gh"
     assert os.access(double, os.X_OK), "a double that cannot execute is not one"
     assert not (skill.path / "bin" / "gh").exists(), "a fake gh must never ship with the skill"
 
@@ -1248,6 +1248,54 @@ def test_fixtures_shadow_the_real_thing_on_path(tmp_path: Path) -> None:
         box.cleanup()
 
 
+def test_several_fixture_directories_merge_in_order(tmp_path: Path) -> None:
+    """A double shared between skills, plus the ones only this skill needs.
+
+    Later wins, so a shared `gh` can be listed first and overridden, and a
+    stub only one skill needs does not have to be copied into the shared
+    directory to be reachable.
+    """
+    from shakedown.sandbox import TempSandbox
+
+    skill = _skill_dir(tmp_path)
+    common = tmp_path / "common"
+    common.mkdir()
+    (common / "gh").write_text("#!/bin/sh\necho shared\n")
+    (common / "kubectl").write_text("#!/bin/sh\necho shared-kubectl\n")
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    (mine / "gh").write_text("#!/bin/sh\necho mine\n")
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        'skill = "../my-skill"\nfixtures = ["../common", "../mine"]\n'
+        '[[case]]\nname="c"\nprompt="p"\ntool="t"\n'
+    )
+
+    loaded = load_skill(skill)
+    assert [d.name for d in loaded.fixtures] == ["common", "mine"]
+
+    box = TempSandbox(harness(skills=".x/skills"))
+    try:
+        box.seed(harness(skills=".x/skills"), loaded)
+        assert (box.path / "bin" / "gh").read_text() == "#!/bin/sh\necho mine\n"
+        assert (box.path / "bin" / "kubectl").is_file(), "the shared one still arrives"
+    finally:
+        box.cleanup()
+
+
+def test_every_fixture_directory_is_checked(tmp_path: Path) -> None:
+    """A list is only as good as its worst entry."""
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "common").mkdir()
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        'skill = "../my-skill"\nfixtures = ["../common", "../nowhere"]\n'
+        '[[case]]\nname="c"\nprompt="p"\ntool="t"\n'
+    )
+    with pytest.raises(ConfigError, match="not a directory"):
+        load_skill(skill)
+
+
 def test_fixtures_naming_a_missing_directory_are_refused(tmp_path: Path) -> None:
     """Silently seeding nothing would let the real `gh` run for real."""
     skill = _skill_dir(tmp_path)
@@ -1378,7 +1426,7 @@ def test_the_container_separates_stdout_from_stderr(tmp_path: Path) -> None:
 @needs_docker
 def test_the_container_does_not_inherit_the_host_home(monkeypatch: pytest.MonkeyPatch) -> None:
     """`HOME = "${HOME}"` expands to a path the image does not have."""
-    from shakedown.sandbox import WORK, create
+    from shakedown.sandbox import HOME, WORK, create
 
     monkeypatch.setenv("FAKE_COUNTER", "/work/count.txt")
     declared = load_config(FAKE / "container.toml").harness["fake"]
@@ -1389,8 +1437,36 @@ def test_the_container_does_not_inherit_the_host_home(monkeypatch: pytest.Monkey
     finally:
         box.cleanup()
 
-    assert f"HOME={WORK}" in out, out
+    assert f"HOME={HOME}" in out, out
     assert "/Users/nobody" not in out, out
+    assert out.strip().splitlines()[-1].startswith(WORK), "HOME has to be writable"
+
+
+@needs_docker
+def test_the_container_home_is_not_the_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HOME equal to cwd makes `.claude/skills` the user's, not the project's.
+
+    A harness reads project skills from `<cwd>/.claude`. When HOME is the
+    same directory, that is also `~/.claude`: Claude Code files its own
+    state there, the seeded skill is taken for a user skill, and
+    `--setting-sources project` drops it. Every run then reports "never
+    activated" and the skill is blamed for the sandbox's mistake.
+    """
+    from shakedown.sandbox import HOME, WORK, create
+
+    monkeypatch.setenv("FAKE_COUNTER", "/work/count.txt")
+    declared = load_config(FAKE / "container.toml").harness["fake"]
+    box = create(declared, load_skill(FAKE / "skill"), backend="container")
+    try:
+        _, out, _ = box.exec(
+            ["sh", "-c", 'echo "cwd=$PWD home=$HOME"'], declared.environment(), 60.0
+        )
+    finally:
+        box.cleanup()
+
+    assert f"cwd={WORK}" in out, out
+    assert f"home={HOME}" in out, out
+    assert HOME != WORK, "the skill directory would be the user's config directory"
 
 
 @needs_docker

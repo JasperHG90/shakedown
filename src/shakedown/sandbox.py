@@ -21,6 +21,12 @@ from pathlib import Path
 from shakedown.models import CASES_NAME, Harness, Skill
 
 WORK = "/work"
+#: HOME inside the container. A subdirectory of the mount rather than the
+#: mount itself: a harness discovers project skills under `<cwd>/.claude`,
+#: and with HOME equal to cwd that same directory is also `~/.claude`, so
+#: Claude Code files its own state there and the seeded skill is read as a
+#: user one and never surfaced. Writable, thrown away with the workspace.
+HOME = f"{WORK}/.home"
 
 #: Files that live beside a skill for shakedown's benefit, not the model's.
 #: Seeding them would hand the model the answers it is being measured on.
@@ -106,9 +112,11 @@ class Sandbox(ABC):
             shutil.copytree(skill.bin_dir, self.path / "bin", dirs_exist_ok=True)
         # Last, so a stand-in shadows the real thing of the same name: a
         # skill that shells out to `gh` is measured against a `gh` that
-        # records the call rather than opening the pull request.
-        if skill.fixtures:
-            shutil.copytree(skill.fixtures, self.path / "bin", dirs_exist_ok=True)
+        # records the call rather than opening the pull request. In the
+        # declared order, so a shared double listed first can be overridden
+        # by one only this skill needs.
+        for extra in skill.fixtures:
+            shutil.copytree(extra, self.path / "bin", dirs_exist_ok=True)
 
 
 class TempSandbox(Sandbox):
@@ -200,14 +208,23 @@ class ContainerSandbox(Sandbox):
         directories the image does not have, and a single ``export`` takes
         the last assignment for a name, so exporting them would replace the
         container's own PATH — hiding the seeded ``bin/`` — and point HOME
-        at a path nothing can write to. The container gets ``/work`` for
-        both, which is the mount and is writable.
+        at a path nothing can write to. The container gets ``/work/bin``
+        first on PATH and its own writable ``HOME`` inside the mount.
+
+        HOME is deliberately not the mount itself. A harness discovers
+        project skills under ``<cwd>/.claude``, so HOME equal to cwd makes
+        that one directory both the project's and the user's: Claude Code
+        writes its own state into it and the seeded skill is classified as
+        a user skill, which ``--setting-sources project`` then excludes. It
+        is never offered to the model, every run reports "never activated",
+        and the skill looks broken when the sandbox is at fault.
         """
         declared = {key: value for key, value in env.items() if key not in HOST_ONLY}
         exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in declared.items())
         joined = shlex.join(argv)
         return self._sh(
-            f"cd {WORK} && export PATH={WORK}/bin:$PATH HOME={WORK} {exports} && {joined}",
+            f"mkdir -p {HOME} && cd {WORK} && "
+            f"export PATH={WORK}/bin:$PATH HOME={HOME} {exports} && {joined}",
             timeout_s,
         )
 

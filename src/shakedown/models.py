@@ -156,8 +156,15 @@ class CasesFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     skill: str = ""
-    fixtures: str = ""
+    #: One directory, or several. Several is how a double shared between
+    #: skills combines with the ones only this skill needs.
+    fixtures: str | list[str] = ""
     case: list[Case] = Field(default_factory=list)
+
+    def fixture_dirs(self) -> list[str]:
+        """The declared directories, in the order they were written."""
+        named = [self.fixtures] if isinstance(self.fixtures, str) else self.fixtures
+        return [entry for entry in named if entry]
 
 
 class MatrixEntry(BaseModel):
@@ -230,8 +237,10 @@ class Skill(BaseModel):
     #: Stand-ins the cases supply: executables that shadow the real thing on
     #: PATH. Declared beside the cases, never inside the skill, because a
     #: fake `gh` is something the skill is measured with rather than
-    #: something it ships.
-    fixtures: Path | None = None
+    #: something it ships. Seeded in order, so a directory listed later
+    #: overrides a same-named stand-in from one listed earlier: shared
+    #: doubles first, the ones only this skill needs after.
+    fixtures: list[Path] = Field(default_factory=list)
 
     @property
     def bin_dir(self) -> Path | None:
@@ -381,20 +390,21 @@ def _build(skill_dir: Path, cases_file: Path) -> Skill:
     if not declared.case:
         raise ConfigError(f"{cases_file} declares no [[case]] blocks")
 
-    fixtures = None
-    if declared.fixtures:
-        fixtures = (cases_file.parent / declared.fixtures).resolve()
-        if not fixtures.is_dir():
+    fixtures = []
+    for named in declared.fixture_dirs():
+        resolved = (cases_file.parent / named).resolve()
+        if not resolved.is_dir():
             raise ConfigError(
-                f"{cases_file}: `fixtures` names {fixtures}, which is not a directory"
+                f"{cases_file}: `fixtures` names {resolved}, which is not a directory"
             )
         # A double inside the skill ships to everyone who installs it, which
         # is the one thing keeping fixtures beside the cases prevents.
-        if fixtures == skill_dir or skill_dir in fixtures.parents:
+        if resolved == skill_dir or skill_dir in resolved.parents:
             raise ConfigError(
-                f"{cases_file}: `fixtures` names {fixtures}, which is inside the skill. "
+                f"{cases_file}: `fixtures` names {resolved}, which is inside the skill. "
                 "Stand-ins belong beside the cases: one inside the skill ships with it."
             )
+        fixtures.append(resolved)
 
     return Skill(
         path=skill_dir,
