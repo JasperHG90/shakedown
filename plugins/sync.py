@@ -55,9 +55,7 @@ def _differs(source: Path, destination: Path) -> bool:
     found = filecmp.dircmp(source, destination)
     if found.left_only or found.right_only or found.funny_files:
         return True
-    _, mismatch, errors = filecmp.cmpfiles(
-        source, destination, found.common_files, shallow=False
-    )
+    _, mismatch, errors = filecmp.cmpfiles(source, destination, found.common_files, shallow=False)
     if mismatch or errors:
         return True
     return any(_differs(source / name, destination / name) for name in found.common_dirs)

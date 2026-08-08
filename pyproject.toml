@@ -10,6 +10,12 @@ requires-python = ">=3.11"
 dependencies = [
     "cachetools>=7.1.7",
     "pydantic>=2.13.4",
+    # pytest is the runner, not a test-time convenience: `case run` shells
+    # out to `python -m pytest`, and `--parallel` passes `-n`, which is
+    # xdist. Left in the dev group, a tool install could not run a case at
+    # all — the one thing the tool is for.
+    "pytest>=8",
+    "pytest-xdist>=3.8.0",
     "rich>=15.0.0",
     "stamina>=26.1.0",
     "testcontainers>=4.15.0",
@@ -18,11 +24,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest>=8",
     "ruff>=0.6",
     "mypy>=1.11",
     "types-cachetools>=7.0.0.20260713",
-    "pytest-xdist>=3.8.0",
     "pyyaml>=6.0.3",
     "types-pyyaml>=6.0.12.20260724",
 ]

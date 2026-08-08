@@ -719,6 +719,23 @@ def test_the_action_only_calls_commands_and_flags_that_exist() -> None:
         assert flag in helped, f"{flag} is not a flag of `shakedown case run`"
 
 
+def test_the_runner_ships_with_the_tool() -> None:
+    """`case run` shells out to pytest, and `--parallel` needs xdist.
+
+    In the dev group these are invisible to `uv tool install`, so the
+    installed CLI parses a cases file, prints its banner, and then cannot
+    run one — the whole point of it. Found by someone installing from git
+    and hitting it.
+    """
+    import tomllib
+
+    declared = tomllib.loads((REPO / "pyproject.toml").read_text())
+    runtime = " ".join(declared["project"]["dependencies"])
+
+    assert "pytest" in runtime, "`case run` is a front for pytest"
+    assert "pytest-xdist" in runtime, "`--parallel` passes `-n`, which is xdist"
+
+
 def test_the_action_installs_from_the_package_root() -> None:
     """The action sits in a subdirectory, so it walks up to find the package.
 
