@@ -234,9 +234,23 @@ Read all of what it says, not just the exit code:
 
 ## Step 6: Offer to run it
 
-Running spends money, so offer rather than assume, and say roughly what it
-will cost: one model round trip per case per target, plus a second turn for
-any case that withholds something.
+Everything so far worked on files alone, which is why no harness was needed
+to get here — cases are often written on a machine that never runs them.
+Running is different, so check the ground before offering it:
+
+```bash
+command -v <the harness CLI named in shakedown.toml>
+```
+
+A missing binary makes the offer a waste of the operator's time, and the
+failure it produces reads like a broken skill rather than an absent CLI.
+If none is installed, say which one the config names and stop there; the
+cases file is still finished and still worth committing. Same if there is
+no `shakedown.toml` to be found: the run needs one, and `init` writes it.
+
+Then offer rather than assume, and say roughly what it will cost: one model
+round trip per case per target, plus a second turn for any case that
+withholds something.
 
 ```bash
 shakedown case run shakedowns/<slug>.cases.toml --harness <one> --keep

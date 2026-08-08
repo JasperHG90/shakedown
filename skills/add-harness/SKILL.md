@@ -23,6 +23,26 @@ be measuring nothing. Every prerequisite below is verified by watching what
 the agent actually did, never by reading a help string or an inventory
 command.
 
+## Step 0: Confirm the binary is here
+
+Everything below is read off the CLI in front of you, so start by
+establishing there is one:
+
+```bash
+command -v <cli> && <cli> --version
+```
+
+If it is not installed, stop and say so. shakedown runs harnesses; it does
+not install them, and the block you would write without the binary is
+guesswork. Flags drift between versions, an agent's memory of a CLI is
+frequently a version or two stale, and a plausible wrong flag produces a
+config that fails at `doctor` in a way that looks like the harness's fault
+rather than the block's. Ask the operator to install it, or work on a
+harness that is present.
+
+The version matters beyond mere presence: record it, because it is part of
+what any measurement made with this block will mean.
+
 ## Step 1: Check the binary can do the five things
 
 A harness qualifies if it can do these. Four are required.
