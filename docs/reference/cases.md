@@ -36,6 +36,7 @@ check it does not declare reports `unsupported` rather than failing.
 | Key | Type | Default | Declares | Omitting it means |
 |---|---|---|---|---|
 | `skill` | string | required outside the skill | The skill directory these cases measure, relative to this file | Resolved from the skill's own directory instead |
+| `fixtures` | string | none | A directory of stand-in executables, seeded onto PATH ahead of the real ones. See [fixtures](#fixtures) | The skill calls the real commands |
 | `name` | string | required | The case's identity, matched by `--case` | — |
 | `prompt` | string | required | What the agent is asked | — |
 | `tool` | string | none | The CLI the skill must go through | `tool_used` reports `unsupported` |
@@ -61,6 +62,49 @@ command on one harness and inside a `run_shell_command` on another.
 The check also reads the harness's denial records: a call that was requested
 and refused fails with "was requested but denied" rather than counting as
 used.
+
+## `fixtures`
+
+A directory of executables copied into the sandbox's `bin/` after the
+skill's own, so a stand-in of the same name shadows it. `bin/` is first on
+PATH, so it also shadows anything installed on the machine or in the image.
+
+```toml
+fixtures = "fixtures/register-service"
+```
+
+This is how a skill with side effects gets measured. `register-service`
+clones a shared repository, edits it, commits, pushes, and opens a pull
+request, and every one of those that leaves the machine goes through `gh`.
+Its cases supply a `gh` that clones from a local repository the double
+builds on first call, records each invocation to `gh-calls.log`, and prints
+a pull request URL without opening one. `git` is left alone, so the branch,
+the diff against `origin/main`, and the commit are all real.
+
+A double is not a way to skip the interesting part. It is what makes the
+interesting part checkable: the skill's own clone is a temp directory it
+deletes on exit, so the double exports the pushed branch to `pr/` where
+`[[case.artifacts]]` can read it. Asserting on `pr/services/checkout.yaml`
+says more than a real pull request URL ever could.
+
+Fixtures live beside the cases, never inside the skill. A fake `gh` shipped
+in `<skill>/bin/` would install onto the machines of everyone who uses the
+skill.
+
+The path is relative to the cases file, and it must not point inside the
+skill: a double shipped in `<skill>/bin/` installs onto the machine of
+everyone who uses the skill. Both that and a `fixtures` naming a directory
+that is not there are refused at load, because seeding no double silently
+would let the real command run for real.
+
+`fixtures` and `skill` are file-level keys and belong **above the first
+`[[case]]`**. TOML gives a bare key written after a table to that table, so
+one placed below it belongs to that case, and is refused with the key named
+rather than ignored.
+
+A double should fail on any call it does not recognize. Exiting 0 for an
+unknown verb hands the skill an empty success, and the run gets scored on
+it.
 
 ## `[[case.artifacts]]`
 

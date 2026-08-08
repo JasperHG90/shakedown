@@ -55,6 +55,22 @@ Drop `HOME = "${HOME}"` if you had it. A host home directory means nothing
 inside the container, and the whole reason to run there is that no host
 configuration exists to leak.
 
+On a Claude subscription an API key is separate billing, so mint a
+long-lived token on the host and declare that instead:
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token)
+```
+
+```toml
+[harness.claude-code.env]
+CLAUDE_CODE_OAUTH_TOKEN = "${CLAUDE_CODE_OAUTH_TOKEN}"
+```
+
+On macOS that login lives in the Keychain rather than in a file under
+`$HOME`, so no amount of mounting carries it in. Keep the value a `${VAR}`
+reference: a token written into the TOML gets committed.
+
 ### 3. Run
 
 ```bash

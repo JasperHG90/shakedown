@@ -261,14 +261,20 @@ src/shakedown/
 examples/
   write-plan/      SKILL.md, bin/planctl
   scaffold-service/  SKILL.md, cases.toml, bin/scaffoldctl
+  register-service/  SKILL.md, bin/registerctl -- clones a repo, opens a PR
   docker/          images for the container sandbox
 shakedowns/
-  write-plan.cases.toml   cases live outside the skill they measure
+  write-plan.cases.toml       cases live outside the skill they measure
+  register-service.cases.toml
+  fixtures/register-service/gh   a `gh` that records instead of publishing
 ```
 
-Both example skills run: `write-plan` keeps its cases in `shakedowns/`,
-which is where they belong and where shakedown looks first, and
-`scaffold-service` keeps them inside itself, which still works.
+All three example skills run. `write-plan` keeps its cases in `shakedowns/`,
+which is where they belong and where shakedown looks first; `scaffold-service`
+keeps them inside itself, which still works. `register-service` is the one
+with side effects: it clones a shared repository and opens a pull request, so
+its cases supply a `gh` that records those calls against a local repository
+instead of making them.
 
 `pytest` works directly, and `shakedown run` is a front for it. Unknown
 options are rejected rather than forwarded, so put pytest's own flags after

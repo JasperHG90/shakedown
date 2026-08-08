@@ -87,6 +87,9 @@ class Sandbox(ABC):
     def seed(self, harness: Harness, skill: Skill) -> None:
         """Copy the skill where the harness discovers it, plus any bin/.
 
+        `bin/` holds the skill's own executables and then the cases'
+        fixtures, and sits ahead of everything on PATH.
+
         Everything shakedown keeps beside the skill is left out. ``cases.toml``
         holds the replies to the withheld inputs and the exact strings each
         artifact is checked for: a model that reads it can pass without
@@ -101,6 +104,11 @@ class Sandbox(ABC):
         )
         if skill.bin_dir:
             shutil.copytree(skill.bin_dir, self.path / "bin", dirs_exist_ok=True)
+        # Last, so a stand-in shadows the real thing of the same name: a
+        # skill that shells out to `gh` is measured against a `gh` that
+        # records the call rather than opening the pull request.
+        if skill.fixtures:
+            shutil.copytree(skill.fixtures, self.path / "bin", dirs_exist_ok=True)
 
 
 class TempSandbox(Sandbox):

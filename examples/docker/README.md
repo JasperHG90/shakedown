@@ -57,3 +57,32 @@ ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
 
 A declared variable that is unset on the host is an error rather than an
 empty string, because silently dropping it would change what ran.
+
+### On a Claude subscription
+
+An API key is separate billing. To run the container on the subscription you
+already pay for, mint a long-lived token on the host and declare that:
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token)
+```
+
+```toml
+[harness.claude-code.env]
+CLAUDE_CODE_OAUTH_TOKEN = "${CLAUDE_CODE_OAUTH_TOKEN}"
+```
+
+Keep it a `${VAR}` reference. A token pasted into the TOML is committed, and
+one baked into an image ships to whoever pulls it.
+
+On macOS the subscription login lives in the Keychain rather than in a file
+under `$HOME`, which is why mounting a home directory into the container does
+not carry it and the token is the way in. Drop `HOME = "${HOME}"` for
+container runs while you are there: the container sets `HOME=/work` itself,
+and pointing it at your own home is the contamination the container is for.
+
+Check it before spending a matrix run:
+
+```bash
+shakedown doctor --harness claude-code --sandbox container
+```

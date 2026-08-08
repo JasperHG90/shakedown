@@ -25,6 +25,14 @@ dockerfile = "examples/docker/claude-code.Dockerfile"
 
 [harness.claude-code.env]
 HOME = "${HOME}"
+# For `--sandbox container`: the container inherits nothing, and on macOS a
+# subscription login lives in the Keychain rather than in a file, so neither
+# HOME above nor a mount reaches it. Mint a long-lived token instead, which
+# bills the subscription rather than the API:
+#
+#   export CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token)
+#
+# CLAUDE_CODE_OAUTH_TOKEN = "${CLAUDE_CODE_OAUTH_TOKEN}"
 
 [harness.claude-code.events]
 container = "message.content"

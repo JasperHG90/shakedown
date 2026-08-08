@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -128,6 +129,31 @@ def test_arguments_that_are_not_an_object_are_refused() -> None:
     """
     with pytest.raises(StreamError):
         parse([{"type": "tool_use", "part": {"tool": "bash", "state": "running"}}], OPENCODE)
+
+
+def test_every_gh_verb_the_example_calls_has_an_arm_in_its_double() -> None:
+    """`register-service` is the worked example of a skill with side effects.
+
+    Its `gh` double is the only thing between a measured run and a real
+    pull request. A verb the skill invokes but the double does not answer
+    would reach the real `gh`, so the pairing is checked rather than
+    assumed: the double dies on anything it does not recognize, and this
+    asserts nothing the skill calls lands there.
+    """
+    skill = load_skill(REPO / "shakedowns/register-service.cases.toml")
+    assert skill.fixtures is not None
+    double = skill.fixtures / "gh"
+    assert os.access(double, os.X_OK), "a double that cannot execute is not one"
+    assert not (skill.path / "bin" / "gh").exists(), "a fake gh must never ship with the skill"
+
+    script = (skill.path / "bin" / "registerctl").read_text()
+    invoked = set(re.findall(r"^\s*(?:\w+=\"?\$\()?gh (--repo \S+ )?(\w+)", script, re.MULTILINE))
+    answered = double.read_text()
+    for _, verb in invoked:
+        assert f"\n  {verb})" in answered or "\n  --repo)" in answered, (
+            f"registerctl calls `gh {verb}`, which the double does not answer"
+        )
+    assert invoked, "the example is meant to shell out to gh"
 
 
 def test_the_shipped_harnesses_parse_their_own_output() -> None:
@@ -311,8 +337,11 @@ def _skill_dir(root: Path, name: str = "my-skill") -> Path:
     return made
 
 
-def _cases(named: str) -> str:
-    return f'skill = "{named}"\n[[case]]\nname="outside"\nprompt="p"\nartifact="A"\ntool="t"\n'
+def _cases(named: str, **top: str) -> str:
+    """A cases file naming its skill. Top-level keys go before the tables:
+    after them, TOML reads a bare key as belonging to the last one."""
+    head = f'skill = "{named}"\n' + "".join(f'{k} = "{v}"\n' for k, v in top.items())
+    return head + '[[case]]\nname="outside"\nprompt="p"\nartifact="A"\ntool="t"\n'
 
 
 def test_cases_may_live_outside_the_skill(tmp_path: Path) -> None:
@@ -1187,6 +1216,96 @@ def test_container_backend_runs_and_isolates(tmp_path: Path, config: str) -> Non
     turns = {r["case"]: r["turns"] for r in payload["runs"]}
     assert turns["missing-both"] == 3
     assert {r["name"]: r["status"] for r in payload["runs"][0]["results"]}["skill_fired"] == "pass"
+
+
+def test_fixtures_shadow_the_real_thing_on_path(tmp_path: Path) -> None:
+    """A stand-in wins over an executable of the same name in the skill.
+
+    The point of a fixture is to intercept: a skill that shells out to `gh`
+    is measured against a `gh` that records the call. Seeding the skill's
+    own copy last would leave the real one in front.
+    """
+    from shakedown.sandbox import TempSandbox
+
+    skill = _skill_dir(tmp_path)
+    (skill / "bin").mkdir()
+    (skill / "bin" / "gh").write_text("#!/bin/sh\necho real\n")
+    (skill / "bin" / "own").write_text("#!/bin/sh\necho own\n")
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "gh").write_text("#!/bin/sh\necho stub\n")
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        _cases("../my-skill", fixtures="../stubs")
+    )
+
+    box = TempSandbox(harness(skills=".x/skills"))
+    try:
+        box.seed(harness(skills=".x/skills"), load_skill(skill))
+        assert (box.path / "bin" / "gh").read_text() == "#!/bin/sh\necho stub\n"
+        assert (box.path / "bin" / "own").is_file(), "the skill's own bin still arrives"
+    finally:
+        box.cleanup()
+
+
+def test_fixtures_naming_a_missing_directory_are_refused(tmp_path: Path) -> None:
+    """Silently seeding nothing would let the real `gh` run for real."""
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        _cases("../my-skill", fixtures="../nowhere")
+    )
+    with pytest.raises(ConfigError, match="not a directory"):
+        load_skill(skill)
+
+
+def test_a_misspelled_file_level_key_is_refused(tmp_path: Path) -> None:
+    """`fixture` for `fixtures` seeded no double and ran the real command."""
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "stubs").mkdir()
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        _cases("../my-skill", fixture="../stubs")
+    )
+    with pytest.raises(ConfigError, match="fixture"):
+        load_skill(skill)
+
+
+def test_fixtures_inside_the_skill_are_refused(tmp_path: Path) -> None:
+    """A double inside the skill installs onto every machine that gets it."""
+    skill = _skill_dir(tmp_path)
+    (skill / "bin").mkdir()
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        _cases("../my-skill", fixtures="../my-skill/bin")
+    )
+    with pytest.raises(ConfigError, match="inside the skill"):
+        load_skill(skill)
+
+
+def test_a_misspelled_artifact_key_is_refused(tmp_path: Path) -> None:
+    """`contain` for `contains` quietly weakened the check to file-exists."""
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        'skill = "../my-skill"\n[[case]]\nname="c"\nprompt="p"\n'
+        '[[case.artifacts]]\npath="A"\ncontain=["x"]\n'
+    )
+    with pytest.raises(ConfigError, match="contain"):
+        load_skill(skill)
+
+
+def test_a_key_a_case_does_not_know_is_refused(tmp_path: Path) -> None:
+    """`fixtures` is a top-level key, and TOML gives a bare key after a
+    table to that table. Ignoring it seeded no double and let the real
+    command run for real, which is the failure this forbids."""
+    skill = _skill_dir(tmp_path)
+    (tmp_path / "shakedowns").mkdir()
+    (tmp_path / "shakedowns" / "my-skill.cases.toml").write_text(
+        _cases("../my-skill") + 'fixtures = "../stubs"\n'
+    )
+    with pytest.raises(ConfigError, match="fixtures"):
+        load_skill(skill)
 
 
 def test_the_answers_are_not_seeded_with_the_skill(tmp_path: Path) -> None:

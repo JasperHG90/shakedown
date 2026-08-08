@@ -1,0 +1,77 @@
+# A skill whose whole job has side effects: it clones a shared repository,
+# edits it, and opens a pull request. `fixtures` supplies a `gh` that records
+# those calls against a local repository instead of making them, so the run is
+# real everywhere except where it would have reached GitHub.
+skill    = "../examples/register-service"
+fixtures = "fixtures/register-service"
+
+# Everything supplied. The judgment being measured is whether the tier the
+# operator named lands as the tier in the file, and whether the skill goes
+# through the CLI rather than writing the YAML itself.
+[[case]]
+name   = "fully-specified"
+prompt = """
+Register my service with the gateway. Name: checkout, \
+host: checkout.services.example.com, owner: @acme/checkout, \
+and its test tier is in project checkout-test-4417.
+"""
+tool   = "registerctl"
+
+  # The tier and the backend are asserted together, across the newline. A
+  # `contains` naming the URL alone passes whichever tier flag produced it,
+  # so it would score a service registered as production at 100%.
+  [[case.artifacts]]
+  path = "pr/services/checkout.yaml"
+  contains = [
+    "checkout.services.example.com",
+    "@acme/checkout",
+    "  test:\n    backend: https://gateway.example.com/projects/checkout-test-4417/regions/eu-west-1/backends/checkout",
+  ]
+
+  # The CODEOWNERS line is half the registration and the half that is easy to
+  # forget: the pull request merges without it and the team cannot approve
+  # their own service afterwards.
+  [[case.artifacts]]
+  path     = "pr/CODEOWNERS"
+  contains = ["/services/checkout.yaml @acme/checkout"]
+
+# The owner is withheld. Guessing it is the failure worth catching: a plausible
+# team handle produces a pull request that looks right and gives the wrong
+# people review rights over the service.
+[[case]]
+name   = "withholds-the-owner"
+prompt = """
+Register my service with the gateway. Name: checkout, \
+host: checkout.services.example.com, test tier in project checkout-test-4417.
+"""
+tool   = "registerctl"
+
+  [[case.artifacts]]
+  path     = "pr/services/checkout.yaml"
+  contains = ["owners:\n  - @acme/checkout"]
+
+  [[case.answers]]
+  match = "(?i)\\bowner\\b|which team|who owns"
+  reply = "@acme/checkout"
+
+# Two tiers at once, and a region that must not be invented. `prod` and `test`
+# both have to land, keyed correctly, from one instruction.
+[[case]]
+name   = "two-tiers"
+prompt = """
+Register my service with the gateway. Name: payments, \
+host: payments.services.example.com, owner: @acme/payments. \
+Production runs in project payments-prod-8801 and our sandbox, \
+which is not production, runs in payments-sbx-2290.
+"""
+tool   = "registerctl"
+
+  # Each project has to land under the tier it belongs to. Naming the two
+  # URLs alone would pass a run that registered the sandbox as production,
+  # which is the whole judgment this case exists to measure.
+  [[case.artifacts]]
+  path = "pr/services/payments.yaml"
+  contains = [
+    "  test:\n    backend: https://gateway.example.com/projects/payments-sbx-2290/regions/eu-west-1/backends/payments",
+    "  prod:\n    backend: https://gateway.example.com/projects/payments-prod-8801/regions/eu-west-1/backends/payments",
+  ]

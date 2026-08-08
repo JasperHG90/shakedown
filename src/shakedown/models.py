@@ -90,21 +90,37 @@ class Harness(BaseModel):
 
 
 class Answer(BaseModel):
-    """A question pattern and the reply to give it."""
+    """A question pattern and the reply to give it. Unknown keys refused."""
+
+    model_config = ConfigDict(extra="forbid")
 
     match: re.Pattern[str]
     reply: str
 
 
 class Artifact(BaseModel):
-    """A file the skill must produce, and optionally what must be in it."""
+    """A file the skill must produce, and optionally what must be in it.
+
+    Unknown keys are refused: `contain` for `contains` would otherwise
+    degrade the check to "the file exists" and still report a pass.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     path: str
     contains: list[str] = Field(default_factory=list)
 
 
 class Case(BaseModel):
-    """One measured scenario."""
+    """One measured scenario. Unknown keys are refused.
+
+    TOML gives a bare key written after a table to that table, so a
+    top-level key such as `fixtures` placed below the first `[[case]]`
+    lands here instead. Ignoring it seeded no double and let the real
+    command run for real.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     prompt: str
@@ -125,6 +141,23 @@ class Case(BaseModel):
             entry = {"path": single} if isinstance(single, str) else single
             data.setdefault("artifacts", []).insert(0, entry)
         return data
+
+
+class CasesFile(BaseModel):
+    """A cases file's own keys, refusing any it does not know.
+
+    Parsed as a model rather than read out of the raw dict, so a typo'd
+    `fixture` fails here instead of seeding no double and letting the real
+    command run for real. `skill` and `fixtures` are file-level: TOML gives
+    a bare key written after a table to that table, so one placed below the
+    first `[[case]]` is refused by `Case` rather than landing here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    skill: str = ""
+    fixtures: str = ""
+    case: list[Case] = Field(default_factory=list)
 
 
 class MatrixEntry(BaseModel):
@@ -194,6 +227,11 @@ class Skill(BaseModel):
     path: Path
     name: str
     cases: list[Case]
+    #: Stand-ins the cases supply: executables that shadow the real thing on
+    #: PATH. Declared beside the cases, never inside the skill, because a
+    #: fake `gh` is something the skill is measured with rather than
+    #: something it ships.
+    fixtures: Path | None = None
 
     @property
     def bin_dir(self) -> Path | None:
@@ -300,18 +338,37 @@ def load_skill(path: Path) -> Skill:
     return _build(path, find_cases(path))
 
 
+def _read_cases(cases_file: Path) -> CasesFile:
+    """The cases file, validated. A key it does not know is refused.
+
+    `skill` and `fixtures` are file-level keys and have to sit above the
+    first `[[case]]`: TOML gives a bare key written after a table to that
+    table, so one placed below it is refused by `Case` instead, and the
+    message says which key.
+    """
+    try:
+        return CasesFile.model_validate(tomllib.loads(cases_file.read_text()))
+    except Exception as exc:
+        hint = ""
+        if "fixtures" in str(exc) or "skill" in str(exc):
+            hint = (
+                "\n`skill` and `fixtures` belong above the first [[case]]; "
+                "written below one, TOML reads them as part of that case."
+            )
+        raise ConfigError(f"{cases_file}: {exc}{hint}") from exc
+
+
 def _from_cases(cases_file: Path) -> Skill:
     """Load the skill a cases file points at."""
-    raw = tomllib.loads(cases_file.read_text())
-    named = raw.get("skill")
-    if not named:
+    declared = _read_cases(cases_file)
+    if not declared.skill:
         raise ConfigError(
             f"{cases_file} declares no `skill`, so there is nothing to measure. "
             "Name the skill directory it tests, relative to this file."
         )
     # Relative to the cases file, not the working directory: the pair moves
     # together and is run from wherever CI happens to start.
-    skill_dir = (cases_file.parent / str(named)).resolve()
+    skill_dir = (cases_file.parent / declared.skill).resolve()
     if not (skill_dir / "SKILL.md").is_file():
         raise ConfigError(f"{cases_file}: `skill` names {skill_dir}, which has no SKILL.md")
     return _build(skill_dir, cases_file)
@@ -320,16 +377,28 @@ def _from_cases(cases_file: Path) -> Skill:
 def _build(skill_dir: Path, cases_file: Path) -> Skill:
     """One skill directory and the cases measuring it."""
     skill_md = skill_dir / "SKILL.md"
-    raw = tomllib.loads(cases_file.read_text())
-    try:
-        cases = [Case.model_validate(entry) for entry in raw.get("case", [])]
-    except Exception as exc:
-        raise ConfigError(f"{cases_file}: {exc}") from exc
-    if not cases:
+    declared = _read_cases(cases_file)
+    if not declared.case:
         raise ConfigError(f"{cases_file} declares no [[case]] blocks")
+
+    fixtures = None
+    if declared.fixtures:
+        fixtures = (cases_file.parent / declared.fixtures).resolve()
+        if not fixtures.is_dir():
+            raise ConfigError(
+                f"{cases_file}: `fixtures` names {fixtures}, which is not a directory"
+            )
+        # A double inside the skill ships to everyone who installs it, which
+        # is the one thing keeping fixtures beside the cases prevents.
+        if fixtures == skill_dir or skill_dir in fixtures.parents:
+            raise ConfigError(
+                f"{cases_file}: `fixtures` names {fixtures}, which is inside the skill. "
+                "Stand-ins belong beside the cases: one inside the skill ships with it."
+            )
 
     return Skill(
         path=skill_dir,
         name=_front_matter_name(skill_md, skill_md.stat().st_mtime),
-        cases=cases,
+        cases=declared.case,
+        fixtures=fixtures,
     )
