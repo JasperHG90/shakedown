@@ -1,0 +1,5 @@
+{
+  "name": "shakedown",
+  "version": "0.1.0",
+  "description": "Smoke-test agent skills across harnesses and models: author cases for a skill, describe a harness, and check both before spending anything."
+}

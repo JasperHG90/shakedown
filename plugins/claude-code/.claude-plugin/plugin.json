@@ -1,0 +1,10 @@
+{
+  "name": "shakedown",
+  "description": "Smoke-test agent skills across harnesses and models: author cases for a skill, describe a harness, and check both before spending anything.",
+  "version": "0.1.0",
+  "homepage": "https://github.com/JasperHG90/shakedown",
+  "author": {
+    "name": "Jasper Ginn",
+    "url": "https://github.com/JasperHG90"
+  }
+}

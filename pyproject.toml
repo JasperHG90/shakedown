@@ -54,7 +54,10 @@ convention = "numpy"
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "src"
-files = ["src/shakedown", "tests"]
+# `plugins` is here because the hook scripts ship as files rather than as
+# part of the package, and an unchecked script is exactly where a silent
+# hook failure hides.
+files = ["src/shakedown", "tests", "plugins"]
 strict = true
 
 [tool.pytest.ini_options]

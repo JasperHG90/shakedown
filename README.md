@@ -205,6 +205,14 @@ Three skills and the images they can run in, all runnable as-is:
 - [`examples/docker`](examples/docker) — the images the `container` sandbox
   builds from, and what has to go in one.
 
+## Plugins
+
+[`plugins/`](plugins) holds a Claude Code plugin and a Gemini CLI
+extension over one set of hooks: they tell you at session start when
+shakedown is not installed or the config declares a variable you have not
+exported, check a cases file the moment it is written, and stop a paid
+`case run` whose cases file cannot load.
+
 ## Adding a harness
 
 Add a `[harness.*]` block **and** a `[[matrix]]` entry naming it — the

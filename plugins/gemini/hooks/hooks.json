@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${extensionPath}/../scripts/shakedown_hooks.py\" session-start"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "write_file|replace",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${extensionPath}/../scripts/shakedown_hooks.py\" after-write"
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${extensionPath}/../scripts/shakedown_hooks.py\" before-bash"
+          }
+        ]
+      }
+    ]
+  }
+}
