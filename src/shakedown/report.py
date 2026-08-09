@@ -65,18 +65,38 @@ class RunRecord(BaseModel):
         return not self.failed
 
 
+#: Runs per case below which a mixed rate is not worth reading as one.
+#: A nagging threshold, not a statistical one: ten runs still leave 8/10
+#: spanning roughly half the time to almost always, and closing that to
+#: ten points either way takes a hundred. Ten is where a live matrix stops
+#: being cheap, so it is where the caution stops — not where the number
+#: becomes trustworthy.
+THIN = 10
+
+
 class Score(BaseModel):
-    """Counts for one (target, dimension)."""
+    """Counts for one (target, dimension), pooled over that target's cases."""
 
     passed: int = 0
     scored: int = 0
     unsupported: int = 0
     not_triggered: int = 0
+    #: Scored runs behind the thinnest case in the pool. `scored` grows
+    #: with the number of cases as readily as with `--repeat`, so five
+    #: cases run twice reads as ten runs of evidence when it is two runs
+    #: of each of five different things. This is what says how hard any
+    #: one of them was actually tried.
+    per_case: int = 0
 
     @property
     def rate(self) -> float | None:
         """Pass rate over scored runs, or None if nothing was scored."""
         return self.passed / self.scored if self.scored else None
+
+    @property
+    def mixed(self) -> bool:
+        """Whether the rate is neither none of the runs nor all of them."""
+        return 0 < self.passed < self.scored
 
 
 class Report(BaseModel):
@@ -118,6 +138,7 @@ class Report(BaseModel):
     def scores(self) -> dict[str, dict[str, Score]]:
         """Counts per target, per dimension."""
         out: dict[str, dict[str, Score]] = defaultdict(lambda: defaultdict(Score))
+        by_case: dict[tuple[str, str, str], int] = defaultdict(int)
         for record in self.runs:
             for result in record.results:
                 score = out[record.target][result.name]
@@ -130,6 +151,15 @@ class Report(BaseModel):
                     score.unsupported += 1
                 else:
                     score.not_triggered += 1
+                if result.status in (Status.PASS, Status.FAIL):
+                    by_case[record.target, result.name, record.case] += 1
+
+        thinnest: dict[tuple[str, str], int] = {}
+        for (target, dimension, _case), count in by_case.items():
+            key = (target, dimension)
+            thinnest[key] = min(thinnest.get(key, count), count)
+        for (target, dimension), count in thinnest.items():
+            out[target][dimension].per_case = count
         return {t: dict(d) for t, d in out.items()}
 
     def markdown(self) -> str:
@@ -182,6 +212,20 @@ class Report(BaseModel):
         note = "not isolated, so the numbers include whatever else the harness could see"
         body += f"\n<sub>sandbox: `{self.sandbox}`"
         body += f" ({note})</sub>\n" if not self.isolated else "</sub>\n"
+
+        # The reader of a PR comment did not run the matrix and does not
+        # know the repeat count, so a percentage here is read straighter
+        # than the same percentage in the terminal that produced it.
+        if thin := sorted(
+            f"`{target}` {dim}"
+            for target, dims in scores.items()
+            for dim, score in dims.items()
+            if score.mixed and score.per_case < THIN
+        ):
+            body += (
+                f"\n<sub>{', '.join(thin)}: a mixed rate over fewer than {THIN} runs "
+                "per case, so read it as a hint rather than a frequency.</sub>\n"
+            )
         return body
 
     @classmethod

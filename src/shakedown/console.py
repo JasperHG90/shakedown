@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from shakedown.report import Score
+from shakedown.report import THIN, Score
 
 if TYPE_CHECKING:
     from shakedown.doctor import Check
@@ -53,10 +53,40 @@ def scores_table(scores: dict[str, dict[str, Score]], *, isolated: bool) -> Tabl
                 str(score.unsupported),
                 str(score.not_triggered),
             )
+    notes = []
     if not isolated:
-        table.caption = "sandbox not isolated: numbers include whatever else the harness could see"
+        notes.append("sandbox not isolated: numbers include whatever else the harness could see")
+    if thin := _thin_rates(scores):
+        notes.append(
+            f"{thin}: a mixed rate over so few runs is noise as often as signal — "
+            "raise --repeat before acting on it"
+        )
+    if notes:
+        table.caption = "\n".join(notes)
         table.caption_style = "yellow"
     return table
+
+
+def _thin_rates(scores: dict[str, dict[str, Score]]) -> str:
+    """Targets and dimensions whose mixed rate rests on too few runs each.
+
+    Counted per case rather than over the pooled `scored`, because five
+    cases run twice also totals ten and is nothing like ten attempts at
+    any one of them — and because raising `--repeat` would otherwise
+    silence the caution by growing a number the caution was never about.
+
+    Only the mixed rates. Not because `0%` and `100%` are better evidence
+    — three passes out of three is consistent with a true rate near a
+    third — but because at the default single repeat every dimension is
+    one or the other, and a caption that always shows is furniture.
+    """
+    thin = {
+        f"{target} {dim}"
+        for target, dims in scores.items()
+        for dim, score in dims.items()
+        if score.mixed and score.per_case < THIN
+    }
+    return ", ".join(sorted(thin))
 
 
 def failures_table(failures: list[dict[str, Any]]) -> Table:

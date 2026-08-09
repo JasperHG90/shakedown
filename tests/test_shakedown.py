@@ -25,7 +25,7 @@ from shakedown.models import (
     load_config,
     load_skill,
 )
-from shakedown.report import MARKER, Report, RunRecord
+from shakedown.report import MARKER, Report, RunRecord, Score
 from shakedown.runner import Conversation, _match
 from shakedown.scaffold import HARNESSES
 
@@ -597,6 +597,133 @@ def record(status: Status, name: str = "tool_used", target: str = "t") -> RunRec
         run=0,
         results=[Result(name=name, status=status, reason="r")],
     )
+
+
+def test_a_mixed_rate_over_few_runs_says_it_is_thin() -> None:
+    """`80%` from five runs reads as a measurement and is not one.
+
+    Four of five is consistent with anything from roughly a third to
+    nearly always, so acting on the gap between it and the next run's
+    `100%` is acting on noise.
+    """
+    from shakedown.console import scores_table
+
+    thin = {"g/flash": {"inputs_resolved": Score(passed=4, scored=5, per_case=5)}}
+    caption = scores_table(thin, isolated=True).caption or ""
+
+    assert "g/flash inputs_resolved" in caption, "the caption names the row it is about"
+    assert "--repeat" in caption
+
+
+def test_ten_runs_of_a_case_is_where_the_caution_stops() -> None:
+    """The boundary is a stated contract, so it is pinned by literal.
+
+    Deriving the fixture from `THIN` would pass for any value the constant
+    ever takes, and the docs quote the number.
+    """
+    from shakedown.console import scores_table
+    from shakedown.report import THIN
+
+    assert THIN == 10, "the how-to quotes ten runs per case"
+    nine = {"g/flash": {"inputs_resolved": Score(passed=8, scored=9, per_case=9)}}
+    ten = {"g/flash": {"inputs_resolved": Score(passed=8, scored=10, per_case=10)}}
+
+    assert scores_table(nine, isolated=True).caption
+    assert not (scores_table(ten, isolated=True).caption or "")
+
+
+def test_all_passed_or_none_is_not_called_thin() -> None:
+    """Those read as verdicts, and are honest about the evidence behind them.
+
+    Warning on them would fire on nearly every run, the default single
+    repeat included, and a caption that always shows is furniture.
+    """
+    from shakedown.console import scores_table
+
+    verdicts = {
+        "g/flash": {
+            "skill_fired": Score(passed=3, scored=3, per_case=3),
+            "tool_used": Score(passed=0, scored=3, per_case=3),
+        }
+    }
+    assert not (scores_table(verdicts, isolated=True).caption or "")
+
+
+def test_thinness_counts_runs_of_a_case_not_the_pool() -> None:
+    """`scored` pools every case, so it grows with cases as well as repeats.
+
+    Five cases run twice also totals ten, and is nothing like ten attempts
+    at any one of them. Counting the pool let a routine invocation print
+    `80%` uncautioned and — worse — let `--repeat` silence the caution by
+    growing the very number it was measured against.
+    """
+    from shakedown.console import scores_table
+
+    def one(case: str, index: int, status: Status) -> RunRecord:
+        return RunRecord(
+            target="g/flash",
+            model="m",
+            case=case,
+            run=index,
+            results=[Result(name="inputs_resolved", status=status, reason="r")],
+        )
+
+    pooled = Report(
+        skill="s",
+        runs=[
+            one(f"case{c}", r, Status.FAIL if (c < 2 and r == 0) else Status.PASS)
+            for c in range(5)
+            for r in range(2)
+        ],
+    )
+
+    score = pooled.scores()["g/flash"]["inputs_resolved"]
+    assert (score.passed, score.scored) == (8, 10), "the pool alone would look like enough"
+    assert score.per_case == 2, "two attempts at each case is what was measured"
+    assert scores_table(pooled.scores(), isolated=True).caption
+
+
+def test_the_pr_comment_carries_the_caution_too() -> None:
+    """Its reader did not run the matrix and does not know the repeat count.
+
+    The isolation caveat already travels into the comment, and a rate that
+    cannot bear weight has more reason to than less.
+    """
+    thin = Report(
+        skill="s",
+        isolated=True,
+        runs=[
+            RunRecord(
+                target="g/flash",
+                model="m",
+                case="withholds",
+                run=index,
+                results=[
+                    Result(
+                        name="inputs_resolved",
+                        status=Status.FAIL if index == 3 else Status.PASS,
+                        reason="r",
+                    )
+                ],
+            )
+            for index in range(5)
+        ],
+    )
+
+    rendered = thin.markdown()
+    assert "inputs_resolved" in rendered
+    assert "hint rather than a frequency" in rendered
+
+
+def test_both_cautions_survive_together() -> None:
+    """A thin rate measured in a leaky sandbox has to say both things."""
+    from shakedown.console import scores_table
+
+    thin = {"g/flash": {"inputs_resolved": Score(passed=4, scored=5, per_case=5)}}
+    caption = scores_table(thin, isolated=False).caption or ""
+
+    assert "not isolated" in caption
+    assert "--repeat" in caption
 
 
 def test_scores_separate_scored_from_unscored() -> None:

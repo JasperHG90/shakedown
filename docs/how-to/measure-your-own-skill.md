@@ -109,6 +109,52 @@ You want the first run to be *informative*, not green. Check three things:
    that tells the agent to use your CLI, rerun one case, and confirm
    `tool_used` drops while `artifact_created` holds.
 
+## How many runs a rate needs
+
+A model is probabilistic, so one run of a case is an anecdote and a
+handful is barely more. Four passes out of five prints as `80%`, and that
+number is consistent with anything from roughly a third of the time to
+nearly always — the next five runs could as easily read `100%` or `60%`
+without anything having changed.
+
+That matters because the intermediate rates are the interesting ones.
+`skill_fired` at 0% is a bug you can go and fix from a single run.
+`inputs_resolved` at 80% is a claim about how often a model asks instead
+of guessing, and acting on it — rewriting a skill, switching harnesses —
+means acting on the difference between 80% and 100%.
+
+So when a rate is mixed and each case behind it was tried only a few
+times, shakedown says so under the table rather than letting the
+percentage speak for itself:
+
+```
+gemini/flash inputs_resolved: a mixed rate over so few runs is noise as
+often as signal — raise --repeat before acting on it
+```
+
+What it counts is runs **per case**, not the `n` column. That column pools
+every case at a target, so five cases run twice also reads as ten, while
+being two attempts at each of five different things. Counting the pool
+would let `--repeat` silence the caution by growing a number the caution
+was never about.
+
+Ten runs of a case is where it stops nagging — which is a budget, not a
+statistic. Eight passes in ten is still consistent with anything from
+about half the time to almost always; closing that to ten points either
+way takes nearer a hundred runs. Ten is simply where a live matrix stops
+being cheap.
+
+`--repeat` is how you get there, and `--parallel` keeps the wall clock
+down:
+
+```bash
+shakedown case run ./my-skill --repeat 20 -j 5
+```
+
+It costs what it says: every repeat is another live call per case per
+target. Narrow to the one case and the one harness you are actually
+asking about, rather than paying for the whole matrix twenty times.
+
 ## Troubleshooting
 
 **`skill_fired` is 0%.** The harness never surfaced the skill. Check the
