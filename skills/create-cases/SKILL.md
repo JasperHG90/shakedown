@@ -56,6 +56,13 @@ An answer needs somewhere to land. `inputs_resolved` is proved by the
 reply appearing in an artifact, so a case with `answers` and no
 `[[case.artifacts]]` measures nothing at all — `case validate` will say so.
 
+`tool` is a substring, matched against a call's name **and its arguments**.
+A tool whose name turns up in what the skill writes is satisfied by the
+writing: `tool = "shakedown"` passes on a `Write` to `shakedown.toml`, with
+the CLI never run. Name enough of the command to rule that out —
+`tool = "shakedown doctor"` — and check it against a plausible transcript
+before believing it.
+
 **Double every backslash in `match`.** It is a TOML basic string, where
 `\b` is a backspace character rather than a word boundary, so
 `match = "(?i)\bowner\b"` compiles to a pattern that can never fire. The
@@ -170,6 +177,12 @@ skill:
 WORK="$(cd "$(dirname "$0")/.." && pwd)"
 ```
 
+Recording is then one line at the top:
+
+```bash
+echo "$(basename "$0") $*" >> "$WORK/$(basename "$0")-calls.log"
+```
+
 Write each double at `shakedowns/fixtures/<slug>/<command>` — the directory
 the `fixtures` key names, resolved relative to the cases file — and make it
 executable. Nothing checks the bit for you, and a double at mode 644 does
@@ -179,6 +192,38 @@ the run fails with an error naming neither the fixture nor the permission.
 ```bash
 chmod +x shakedowns/fixtures/<slug>/*
 ```
+
+### Check the call log like any other file
+
+The log is a file in the workspace, so an artifact check reads it:
+
+```toml
+  [[case.artifacts]]
+  path = "gh-calls.log"
+  contains = ["pr create --base main --head register-checkout"]
+```
+
+Check the log for what the result cannot show. `register-checkout` is a
+branch name only `registerctl` builds, so an agent that ignored the CLI and
+ran `git` and `gh pr create` by hand fails here while `pr/services/checkout.yaml`
+still matches. That is stricter than `tool`, which passes on
+`registerctl --help`. Where the artifact already carries the evidence,
+checking the log repeats it and breaks whenever the CLI changes its flags.
+
+Two things the log cannot do:
+
+- **It is not the command line.** `echo "$*"` joins the arguments with
+  spaces and throws the quoting away, so `--title "Register checkout"` is
+  logged unquoted and `--body ""` disappears. Match unquoted text, and never
+  let a substring straddle an argument that might contain a space.
+- **It must not go in a case that declares `answers`.** `inputs_resolved`
+  looks for the reply across every artifact the case declares. A log holding
+  the command line lets a reply prove itself by appearing in an argument the
+  skill *passed*, when the check exists to prove it reached what the skill
+  *produced*.
+
+Leave temp paths and generated titles out of the substring — they change
+between runs.
 
 ## Step 4: Ask what you missed
 

@@ -15,3 +15,7 @@ plugins/**/__pycache__/
 
 # Pasted screenshots land here; they are not part of the project.
 image*.png
+
+# A double records its calls beside itself when it is run by hand from the
+# fixtures directory, rather than from the workspace it was seeded into.
+*-calls.log

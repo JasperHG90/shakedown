@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# A harness that runs skills. Scripted, not modelled.
+#
+# `add-harness` is measured by whether the block the agent writes actually
+# drives a binary, so there has to be a binary and `shakedown doctor` has to
+# be what grades it. zeta is that binary. It reads its own argv, scans the
+# directory it was pointed at, follows the skill it finds there, and emits
+# events in a shape nobody can recall: flat records, with the tool's name and
+# arguments under `part`. A block written from memory of Claude Code gets
+# every one of those wrong, which is the judgment being measured.
+#
+# What zeta has not got is a model. It follows the two instructions the
+# canary gives and nothing else, so doctor's verdict here covers the two
+# prerequisites zeta can discriminate and no more:
+#
+#   skills pointed elsewhere      2 never activated
+#   activation_tool wrong         2 never activated
+#   --allow-tools missing         2 activated but never ran 'shakedown-ok'
+#   resume flag wrong             2 activated but never ran 'shakedown-ok'
+#   --events-json missing         2 and 3, no events to read
+#   events keys wrong             2 and 3, no events to read
+#
+# Prerequisites 1 and 5 are vacuous against it. zeta parses `--headless` and
+# throws it away, and nothing here wants a terminal, so both rows read `ok`
+# for any block that runs at all — including one that omits the flag a real
+# CLI would hang without. What zeta measures is the plumbing, not the
+# hanging, and the cases file is written knowing that.
+set -euo pipefail
+
+WORK="$(cd "$(dirname "$0")/.." && pwd)"
+SELF="$(basename "$0")"
+echo "$SELF $*" >> "$WORK/$SELF-calls.log"
+
+VERSION="0.9.4"
+die() { echo "zeta: $*" >&2; exit 2; }
+
+usage() {
+  cat <<'HELP'
+zeta 0.9.4 - an agent that runs skills
+
+usage:
+  zeta run <prompt> [flags]
+  zeta --version
+
+flags:
+  --headless           run without a terminal, answer once, exit
+  --events-json        stream newline-delimited JSON events on stdout
+  --model <name>       model to answer with
+  --session <id>       name this session so it can be continued
+  --continue <id>      continue a named session with a new prompt
+  --skills-dir <path>  directory scanned for skills (default: .zeta/skills)
+  --allow-tools        run tool calls instead of refusing them
+HELP
+}
+
+case "${1-}" in
+  --version|-v) echo "zeta $VERSION"; exit 0 ;;
+  --help|-h|"") usage; exit 0 ;;
+  run) shift ;;
+  *) die "unknown command: ${1-}" ;;
+esac
+
+[[ $# -gt 0 && "$1" != --* ]] || die "run needs a prompt"
+PROMPT="$1"; shift
+
+SKILLS_DIR=".zeta/skills"
+SID="" RESUMING="" JSON=0 ALLOW=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --headless)    shift ;;
+    --events-json) JSON=1; shift ;;
+    --allow-tools) ALLOW=1; shift ;;
+    --model)       shift 2 ;;
+    --session)     SID="${2-}"; shift 2 ;;
+    --continue)    RESUMING="${2-}"; shift 2 ;;
+    --skills-dir)  SKILLS_DIR="${2-}"; shift 2 ;;
+    *) die "unknown flag: $1" ;;
+  esac
+done
+
+# Enough escaping for prose read out of a SKILL.md. A newline inside one JSON
+# string would split the record and the stream would stop being parseable, so
+# they are flattened rather than escaped.
+jstr() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n\t' '  '; }
+
+say() {
+  if ((JSON)); then
+    printf '{"kind":"say","part":{"text":"%s"}}\n' "$(jstr "$1")"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+# Only ever emitted as JSON: a harness that was not asked for events has no
+# way to report a tool call, which is what makes a block that forgets
+# `--events-json` fail at doctor's third prerequisite instead of passing.
+emit_tool() {
+  ((JSON)) || return 0
+  printf '{"kind":"tool","part":{"tool":"%s","state":{"input":{"%s":"%s"}}}}\n' \
+    "$1" "$2" "$(jstr "$3")"
+}
+
+STATE="$PWD/.zeta/sessions"
+
+resume_turn() {
+  local skill_md="$1" answer="$2"
+  # The first fenced block in the skill is the command it says to run.
+  local cmd
+  cmd="$(awk '/^```/ {n++; next} n == 1' "$skill_md" | head -1)"
+  [[ -n "$cmd" ]] || { say "The skill names no command to run."; exit 0; }
+
+  if ((ALLOW == 0)); then
+    say "I am not allowed to run tools. Rerun with --allow-tools."
+    exit 0
+  fi
+
+  local out
+  out="$(bash -c "$cmd" 2>&1 || true)"
+  emit_tool "shell" "command" "$cmd"
+  # A basename, because the filename arrives as a reply and a reply is not a
+  # path this is willing to follow out of the workspace.
+  printf '%s\n' "$out" > "$(basename "$answer")"
+  say "Ran the command and wrote $(basename "$answer")."
+}
+
+if [[ -n "$RESUMING" ]]; then
+  skill_md="$(cat "$STATE/$RESUMING" 2>/dev/null || true)"
+  [[ -f "$skill_md" ]] || die "no session called $RESUMING"
+  resume_turn "$skill_md" "$PROMPT"
+  exit 0
+fi
+
+# A start. What the model can see is whatever is in the directory the config
+# named, which is the whole of prerequisite 2.
+skill_md="$(find "$SKILLS_DIR" -maxdepth 2 -name SKILL.md -print -quit 2>/dev/null || true)"
+if [[ -z "$skill_md" ]]; then
+  say "There is no skill in $SKILLS_DIR, so I will answer from memory: $PROMPT"
+  exit 0
+fi
+
+name="$(sed -n 's/^name:[[:space:]]*//p' "$skill_md" | head -1)"
+[[ -n "$name" ]] || name="$(basename "$(dirname "$skill_md")")"
+emit_tool "use_skill" "name" "$name"
+
+# The skill either says to ask first or it does not. Asking ends the turn,
+# which is the only way a second one happens and the only thing prerequisite
+# 4 can be read from.
+question="$(grep -m1 -i 'ask the user' "$skill_md" || true)"
+if [[ -n "$question" && -n "$SID" ]]; then
+  mkdir -p "$STATE"
+  printf '%s\n' "$skill_md" > "$STATE/$SID"
+  say "$question"
+  exit 0
+fi
+
+resume_turn "$skill_md" "answer.txt"

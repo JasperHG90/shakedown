@@ -36,6 +36,16 @@ tool   = "registerctl"
   path     = "pr/CODEOWNERS"
   contains = ["/services/checkout.yaml @acme/checkout"]
 
+  # The double appends every call to gh-calls.log, so the calls are checkable
+  # too. `register-checkout` is a branch name only registerctl builds, which
+  # makes this the check that catches an agent doing the job by hand: the
+  # double serves a clone to anyone, so a run that drove `git` and
+  # `gh pr create` itself can leave both files above exactly right. `tool`
+  # does not catch it either, since `registerctl --help` satisfies that.
+  [[case.artifacts]]
+  path     = "gh-calls.log"
+  contains = ["pr create --base main --head register-checkout"]
+
 # The owner is withheld. Guessing it is the failure worth catching: a plausible
 # team handle produces a pull request that looks right and gives the wrong
 # people review rights over the service.
@@ -76,3 +86,10 @@ tool   = "registerctl"
     "  test:\n    backend: https://gateway.example.com/projects/payments-sbx-2290/regions/eu-west-1/backends/payments",
     "  prod:\n    backend: https://gateway.example.com/projects/payments-prod-8801/regions/eu-west-1/backends/payments",
   ]
+
+  # The same anti-hand-roll signal as the first case, under a second service
+  # name. Which branch registerctl derives is the script's business and is
+  # unit-tested as such; what this asserts is that registerctl is what ran.
+  [[case.artifacts]]
+  path     = "gh-calls.log"
+  contains = ["pr create --base main --head register-payments"]

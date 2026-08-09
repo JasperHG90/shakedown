@@ -84,6 +84,11 @@ The check also reads the harness's denial records: a call that was requested
 and refused fails with "was requested but denied" rather than counting as
 used.
 
+Because the match covers the argument text, a `tool` whose name appears in
+what the skill writes is satisfied by the writing rather than by the run:
+`tool = "shakedown"` passes on a `Write` to `shakedown.toml`. Name enough of
+the command to separate the two — `tool = "shakedown doctor"`.
+
 ## `fixtures`
 
 A directory of executables copied into the sandbox's `bin/` after the
@@ -122,6 +127,27 @@ interesting part checkable: the skill's own clone is a temp directory it
 deletes on exit, so the double exports the pushed branch to `pr/` where
 `[[case.artifacts]]` can read it. Asserting on `pr/services/checkout.yaml`
 says more than a real pull request URL ever could.
+
+The call log is a file in the workspace like any other, so the same check
+reads it:
+
+```toml
+  [[case.artifacts]]
+  path = "gh-calls.log"
+  contains = ["pr create --base main --head register-checkout"]
+```
+
+Check the log for what the result cannot show. `register-checkout` is a
+branch name only `registerctl` builds, so an agent that ignored the CLI and
+drove `git` and `gh` by hand fails here while the tree in `pr/` still
+matches.
+
+Two limits. The log is argv joined by spaces, not the command line — `echo
+"$*"` throws the quoting away, so match unquoted text and never let a
+substring straddle an argument that might contain a space. And a log does
+not belong in a case that declares `answers`: `inputs_resolved` searches
+every declared artifact, so a reply could prove itself by appearing in an
+argument the skill passed rather than in what the skill produced.
 
 Fixtures live beside the cases, never inside the skill. A fake `gh` shipped
 in `<skill>/bin/` would install onto the machines of everyone who uses the

@@ -297,7 +297,9 @@ examples/
 shakedowns/
   write-plan.cases.toml       cases live outside the skill they measure
   register-service.cases.toml
+  add-harness.cases.toml      the bundled skills are measured too
   fixtures/register-service/gh   a `gh` that records instead of publishing
+  fixtures/add-harness/zeta      a harness with no model, for doctor to grade
 ```
 
 All three example skills run. `write-plan` keeps its cases in `shakedowns/`,

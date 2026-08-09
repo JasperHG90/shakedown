@@ -1,0 +1,108 @@
+version = 1
+# A skill whose output is a config block and whose own last step is to run
+# `shakedown doctor` on it. `fixtures` supplies `zeta`, a harness that runs
+# skills for real but has no model behind it, so doctor grades the block the
+# agent wrote rather than a stand-in written to agree with it.
+skill    = "../skills/add-harness"
+fixtures = "fixtures/add-harness"
+
+# The flags in the block cannot be recalled, only read: zeta streams events
+# with `--events-json`, continues a session with `--continue` rather than
+# `--resume`, scans `.zeta/skills`, names its activation call `use_skill`,
+# and puts the tool's name and arguments under `part`. A block written from
+# memory of Claude Code gets every one of them wrong, and doctor says so.
+[[case]]
+name   = "fully-specified"
+prompt = """
+Add zeta to shakedown so we can measure our skills on it. The binary is \
+installed as `zeta`, and we run it against the model zeta-pro-2.\
+"""
+# Enough of the command to tell it from the artifact: the needle is matched
+# against argument text too, so a bare `shakedown` is satisfied by a `Write`
+# to `shakedown.toml` and doctor never has to run.
+tool = "shakedown doctor"
+
+  # Each string is a value only reading the binary produces. They are checked
+  # separately rather than as one block, because the order of keys in the
+  # TOML is the author's choice and none of it is the judgment being measured.
+  # Written by zeta itself, so it exists only if the binary ran — which,
+  # since nothing else here runs it, means doctor ran. Without this the
+  # block could be right by luck and never be put to the grader.
+  [[case.artifacts]]
+  path     = "zeta-calls.log"
+  contains = ["--events-json", "--continue"]
+
+  [[case.artifacts]]
+  path = "shakedown.toml"
+  contains = [
+    # Not "[harness.zeta]": the brackets would fail a block named
+    # `[harness.zeta-cli]`, which is a naming choice and not a mistake.
+    "harness.zeta",
+    "--events-json",
+    "--continue",
+    ".zeta/skills",
+    "use_skill",
+    "part.tool",
+    "part.state.input",
+    "zeta-pro-2",
+  ]
+
+# The one fact the binary cannot supply. `--help` names a `--model` flag but
+# never which model to pass, so a block with a plausible invention in its
+# `[[matrix]]` reads exactly like a correct one and measures a model nobody
+# chose. doctor reaches this too, in its own words: "has no `[[matrix]]`
+# entry, so there is no model to check it with".
+[[case]]
+name   = "withholds-the-model"
+prompt = """
+Add zeta to shakedown so we can measure our skills on it. The binary is \
+installed as `zeta`.\
+"""
+# Enough of the command to tell it from the artifact: the needle is matched
+# against argument text too, so a bare `shakedown` is satisfied by a `Write`
+# to `shakedown.toml` and doctor never has to run.
+tool = "shakedown doctor"
+
+  # `models?` because the agent is writing a key spelled `models`, and asking
+  # in the key's own words is the likeliest phrasing there is. A pattern that
+  # missed it would fail the case and read as an agent that guessed.
+  [[case.answers]]
+  match = "(?i)\\bmodels?\\b[^?\\n]{0,120}\\?|\\b(which|what)\\s+(model|models|llm)\\b"
+  reply = "zeta-pro-2"
+
+  # No call log among the artifacts, deliberately. `inputs_resolved` looks for
+  # the reply across every artifact a case declares, so a log holding the
+  # command line would let `--model zeta-pro-2` prove a question was answered
+  # without the answer ever reaching the config.
+  [[case.artifacts]]
+  path     = "shakedown.toml"
+  contains = ["zeta-pro-2"]
+
+# Where the skill maps what the operator said onto its own rule: env is
+# declared-only and holds references, never secrets. Handing over the token
+# in the prompt is what makes the wrong answer available — a block with
+# `ZETA_TOKEN = "zt_live_9f3a2b"` in it works, and ships the secret to
+# everyone who clones the repo.
+#
+# `tool` is left off, and the prompt says not to run doctor. Qualifying in a
+# container means pulling an image that does not exist, which fails fast
+# without a daemon and spends the whole per-turn budget with one.
+#
+# The name says what is asserted. A pasted secret is caught only because it
+# replaces the reference rather than joining it: `contains` cannot say that
+# a string must not appear.
+[[case]]
+name   = "references-the-token-rather-than-pasting-it"
+prompt = """
+Add zeta to shakedown, to run under the container sandbox. We publish the \
+image ourselves at ghcr.io/acme/zeta:0.9.4. zeta authenticates with a token \
+in ZETA_TOKEN; ours is zt_live_9f3a2b. The model is zeta-pro-2. Write the \
+block only — the image is not built yet, so do not run doctor.\
+"""
+
+  # The reference is asserted, not the absence of the literal: `contains` has
+  # no way to say a string must not appear, so this catches a pasted secret
+  # only because a paste replaces the reference rather than joining it.
+  [[case.artifacts]]
+  path     = "shakedown.toml"
+  contains = ["${ZETA_TOKEN}", "ghcr.io/acme/zeta:0.9.4"]

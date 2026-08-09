@@ -27,7 +27,7 @@ from shakedown.models import (
     load_skill,
 )
 from shakedown.report import MARKER, Report, RunRecord, Score, TurnRecord
-from shakedown.runner import Conversation, _match, converse
+from shakedown.runner import TAIL_CHARS, Conversation, _match, _tail, converse
 from shakedown.scaffold import HARNESSES
 
 REPO = Path(__file__).resolve().parents[1]
@@ -157,6 +157,58 @@ def test_every_gh_verb_the_example_calls_has_an_arm_in_its_double() -> None:
             f"registerctl calls `gh {verb}`, which the double does not answer"
         )
     assert invoked, "the example is meant to shell out to gh"
+
+
+def test_the_call_log_checks_match_what_registerctl_writes(tmp_path: Path) -> None:
+    """The cases assert on a `gh` command line, and nothing else pins it.
+
+    Reordering `pr create`'s arguments or renaming the branch would leave
+    every test green and start failing two cases at model prices, where it
+    reads as a model that got worse rather than a CLI that moved. So the
+    substrings are run against the CLI that has to produce them.
+    """
+    skill = load_skill(REPO / "shakedowns/register-service.cases.toml")
+    double = next(d / "gh" for d in skill.fixtures if (d / "gh").is_file())
+
+    # The arguments each case's prompt describes. Kept here rather than
+    # derived, because what the agent passes is the case's business.
+    invocations = {
+        "fully-specified": ["--name", "checkout", "--test-project", "checkout-test-4417"],
+        "two-tiers": ["--name", "payments", "--prod-project", "payments-prod-8801"],
+    }
+
+    for name, extra in invocations.items():
+        spec = next(c for c in skill.cases if c.name == name)
+        wanted = [a for a in spec.artifacts if a.path == "gh-calls.log"]
+        assert wanted, f"{name} no longer checks the call log"
+
+        work = tmp_path / name
+        (work / "bin").mkdir(parents=True)
+        for command in (double, skill.path / "bin" / "registerctl"):
+            copied = work / "bin" / command.name
+            copied.write_text(command.read_text())
+            copied.chmod(0o755)
+
+        service = extra[extra.index("--name") + 1]
+        subprocess.run(
+            [
+                "registerctl",
+                "--host",
+                f"{service}.services.example.com",
+                "--owner",
+                "@acme/x",
+                *extra,
+            ],
+            cwd=work,
+            env={**os.environ, "PATH": f"{work / 'bin'}:{os.environ['PATH']}"},
+            check=True,
+            capture_output=True,
+        )
+
+        log = (work / "gh-calls.log").read_text()
+        for artifact in wanted:
+            for needle in artifact.contains:
+                assert needle in log, f"{name}: registerctl never writes {needle!r}"
 
 
 def test_the_shipped_harnesses_parse_their_own_output() -> None:
@@ -1772,6 +1824,63 @@ def test_a_reply_left_owed_records_what_the_agent_last_said(
     assert talk.given == []
     assert talk.unmatched is True
     assert talk.unmatched_tail == "What is the owner for this work?"
+
+
+def test_a_harness_that_prints_prose_scores_zero_instead_of_crashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Output that is not newline-delimited JSON is a harness with no events.
+
+    Raising here took the whole invocation down on a traceback, so `doctor`
+    never reached the row that would have named the third prerequisite, and
+    one bad stream in a live matrix took every run after it. The failure has
+    to survive into the report instead: no events, and the parse error where
+    whoever reads the row will find it.
+    """
+    from shakedown.sandbox import create
+
+    monkeypatch.setenv("FAKE_COUNTER", str(tmp_path / "count.txt"))
+    fake = load_config(FAKE / "shakedown.toml").harness["fake"]
+    prose = fake.model_copy(update={"start": ["sh", "-c", "echo I am not JSON."], "resume": []})
+    box = create(prose, load_skill(FAKE / "skill"))
+    try:
+        talk = converse(box, prose, case(prompt="p", artifact="OUT.md"), model="m1")
+    finally:
+        box.cleanup()
+
+    assert talk.first.tool_calls == []
+    assert talk.first.texts == []
+    assert "is not valid JSON" in talk.first.stderr_tail
+
+
+def test_a_chatty_harness_does_not_push_the_diagnosis_out_of_the_tail() -> None:
+    """The tail is the only place the reason for a zero is recorded.
+
+    Joining the diagnosis to stderr and slicing the pair from the end read
+    fine against a quiet harness and dropped the diagnosis against a loud
+    one, which is the harness that needed explaining.
+    """
+    noise = "\n".join(f"warning {n}: something the harness always says" for n in range(40))
+    tail = _tail("stream.jsonl:1 is not valid JSON: line 1", noise)
+
+    assert tail.startswith("stream.jsonl:1 is not valid JSON")
+    assert len(tail) <= TAIL_CHARS
+    assert "warning 39" in tail, "the newest stderr is what the remaining room is for"
+
+
+def test_a_misconfigured_events_block_still_raises(tmp_path: Path) -> None:
+    """`read` failing is the harness's doing; `parse` failing is the config's.
+
+    An `args_key` pointed one level off produces valid JSON that parses to
+    nothing, so swallowing it would score every check zero, report the run
+    as never triggered, and skip — silently, which is the outcome the raise
+    exists to prevent.
+    """
+    stream = tmp_path / "turn.jsonl"
+    stream.write_text('{"type":"tool_use","name":"Bash","input":"not-an-object"}\n')
+
+    with pytest.raises(StreamError):
+        parse(read(stream), Events(container=""))
 
 
 def test_the_turn_cap_leaves_nothing_unmatched_behind_it(

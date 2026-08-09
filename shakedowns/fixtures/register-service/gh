@@ -13,8 +13,17 @@ set -euo pipefail
 # PATH holds <workspace>/bin, so $0 locates the workspace without being told.
 WORK="$(cd "$(dirname "$0")/.." && pwd)"
 REMOTE="$WORK/.gh/platform.git"      # stands in for the platform repository
-LOG="$WORK/gh-calls.log"
-echo "gh $*" >> "$LOG"
+
+# Every call, recorded where a `contains` can read it. Named after the command
+# rather than after `gh`, so copying this double for another CLI records under
+# that CLI's name instead of quietly appending to this one's log.
+#
+# `$*` joins the arguments with spaces and drops the quoting, so the log says
+# what was passed and not how it was quoted: `--title "Register checkout"`
+# lands unquoted, and an empty `--body ""` leaves nothing at all. Substrings
+# asserted against it have to stay inside one argument.
+SELF="$(basename "$0")"
+echo "$SELF $*" >> "$WORK/$SELF-calls.log"
 
 die() { echo "gh (double): $*" >&2; exit 1; }
 

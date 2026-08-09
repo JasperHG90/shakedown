@@ -19,6 +19,8 @@ from shakedown.models import Case, Harness
 from shakedown.sandbox import Sandbox
 
 TURN_CAP = 6
+#: How much of a turn's stderr the report carries.
+TAIL_CHARS = 500
 #: Harnesses return transient upstream errors ("the model returned an empty
 #: response"). Retried rather than scored as a skill failure.
 RETRY_MARKERS = ("empty response", "temporarily unavailable", "rate limit", "overloaded")
@@ -71,9 +73,40 @@ class Conversation(BaseModel):
         return any(skill_name in t.skills_offered for t in self.turns)
 
 
+def _tail(diagnosis: str, stderr: str) -> str:
+    """The end of ``stderr``, with ``diagnosis`` kept whole in front of it.
+
+    Joining the two and slicing the pair from the end dropped the diagnosis
+    exactly when the harness was chatty, which is when it was worth having.
+    So the diagnosis gets its space first and stderr takes what is left.
+
+    Parameters
+    ----------
+    diagnosis :
+        Why the stream could not be read, or empty if it could.
+    stderr :
+        What the harness wrote to stderr, already stripped.
+
+    Returns
+    -------
+    str
+        At most ``TAIL_CHARS`` characters.
+    """
+    if not diagnosis:
+        return stderr[-TAIL_CHARS:]
+    room = TAIL_CHARS - len(diagnosis) - 1
+    if room <= 0:
+        return diagnosis[:TAIL_CHARS]
+    return "\n".join(filter(None, (diagnosis, stderr[-room:])))
+
+
 def _once(
     box: Sandbox, harness: Harness, argv: list[str], stem: str, timeout_s: float
 ) -> tuple[Turn, bool]:
+    """Run the harness once and read what it produced.
+
+    Returns the turn, and whether it timed out.
+    """
     started = time.monotonic()
     code, stdout, stderr = box.exec(argv, harness.environment(), timeout_s)
     elapsed = time.monotonic() - started
@@ -86,7 +119,24 @@ def _once(
     if code != 0 and any(marker in blob for marker in RETRY_MARKERS):
         raise TransientHarnessError(stderr.strip()[:200] or "transient harness error")
 
-    turn = parse(read(out_path), harness.events)
+    # A harness that prints prose, or a warning line, or anything else that is
+    # not newline-delimited JSON is a harness that produced no events — not a
+    # crashed process. Raising here ended the whole invocation on a traceback,
+    # so `doctor` never got to say which prerequisite failed and a live matrix
+    # lost every row after the first bad stream.
+    #
+    # Only `read` is caught. The failures `parse` raises are the config's, not
+    # the harness's — an `args_key` pointed one level off — and swallowing
+    # those would turn a loud crash into a run that scored zero everywhere and
+    # skipped, which is the outcome that raise exists to prevent.
+    try:
+        records = read(out_path)
+        unparsed = ""
+    except StreamError as exc:
+        records = []
+        unparsed = str(exc)
+
+    turn = parse(records, harness.events)
     turn.exit_code = code
     # Recorded per turn as well as per conversation: a later turn timing
     # out must not be reported against the opening one.
@@ -94,13 +144,14 @@ def _once(
     turn.argv = argv
     turn.duration_s = round(elapsed, 2)
     turn.stream = str(out_path)
-    turn.stderr_tail = stderr.strip()[-500:]
+    turn.stderr_tail = _tail(unparsed, stderr.strip())
     return turn, code == -1
 
 
 def _turn(
     box: Sandbox, harness: Harness, argv: list[str], stem: str, timeout_s: float
 ) -> tuple[Turn, bool]:
+    """``_once``, retried while the harness fails for reasons of its own."""
     for attempt in stamina.retry_context(on=TransientHarnessError, attempts=3, wait_initial=2.0):
         with attempt:
             return _once(box, harness, argv, stem, timeout_s)
