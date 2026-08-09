@@ -472,6 +472,7 @@ def test_a_plugin_carries_everything_it_needs(plugin: str) -> None:
     root = REPO / "plugins" / plugin
     assert (root / "scripts/shakedown_hooks.py").is_file()
     assert (root / "skills/add-harness/SKILL.md").is_file()
+    assert (root / "skills/analyze-results/SKILL.md").is_file()
     assert (root / "skills/create-cases/SKILL.md").is_file()
 
 

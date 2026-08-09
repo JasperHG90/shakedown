@@ -28,6 +28,7 @@ PLUGINS = (REPO / "plugins/claude-code", REPO / "plugins/gemini")
 SHARED = {
     REPO / "plugins/scripts/shakedown_hooks.py": Path("scripts/shakedown_hooks.py"),
     REPO / "skills/add-harness": Path("skills/add-harness"),
+    REPO / "skills/analyze-results": Path("skills/analyze-results"),
     REPO / "skills/create-cases": Path("skills/create-cases"),
 }
 

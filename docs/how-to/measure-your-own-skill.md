@@ -100,9 +100,9 @@ shakedown case run ./my-skill --repeat 5 --parallel 5
 
 You want the first run to be *informative*, not green. Check three things:
 
-1. **`skill_fired` is 100%.** If not, nothing else on the row means
-   anything — the run measured the bare model. Fix the skill's description
-   before reading any other number.
+1. **`skill_fired` is 100% and `summary.not_triggered` is 0.** If not,
+   nothing else on the row means anything, because those runs measured the
+   bare model. Fix that before reading any other number.
 2. **No dimension is entirely `n/a`.** A column of `n/a` means no case
    declared that check, so you are not measuring it.
 3. **A deliberate break moves the right number.** Delete the instruction
@@ -118,7 +118,8 @@ nearly always — the next five runs could as easily read `100%` or `60%`
 without anything having changed.
 
 That matters because the intermediate rates are the interesting ones.
-`skill_fired` at 0% is a bug you can go and fix from a single run.
+A `not_triggered` count above zero is a bug you can go and fix from a
+single run.
 `inputs_resolved` at 80% is a claim about how often a model asks instead
 of guessing, and acting on it — rewriting a skill, switching harnesses —
 means acting on the difference between 80% and 100%.
@@ -157,9 +158,19 @@ asking about, rather than paying for the whole matrix twenty times.
 
 ## Troubleshooting
 
-**`skill_fired` is 0%.** The harness never surfaced the skill. Check the
-front-matter `description` — that is what the model matches a request
-against — and confirm `doctor` row 2 passes for this harness.
+The bundled [`analyze-results`](../../skills/analyze-results/SKILL.md)
+skill works the report through the same routing below and reports which
+file each failure belongs to, if you would rather hand it the JSON than
+read it.
+
+**`skill_fired` reads `n/a`.** Nothing activated on that target, so the
+harness never surfaced the skill. The check passes or reports
+`not_triggered`, and `not_triggered` stays out of the rate, so this column
+reads `100%` or `n/a` and never a low percentage. The count is in the
+report at `scores.<target>.skill_fired.not_triggered`, and a row reading
+`100%` with that count above zero means some runs fired and some did not.
+Check the front-matter `description`, which is what the model matches a
+request against, and confirm `doctor` row 2 passes for this harness.
 
 **`inputs_resolved` fails.** The reason names the cause. "no `match` fired
 for X, and nothing was written" quotes what the agent ended on: read that

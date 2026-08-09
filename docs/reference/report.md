@@ -129,13 +129,14 @@ Counts per target, per dimension.
 | `scored` | int | Checks that counted, so passes plus failures |
 | `unsupported` | int | Checks that did not apply |
 | `not_triggered` | int | Checks skipped because the skill never activated |
+| `per_case` | int | Scored runs behind the thinnest case in the pool |
 | `rate` | float or null | `passed / scored`, or `null` when nothing was scored |
 
 ```json
 {
   "claude-code/claude-opus-5": {
-    "tool_used": {"passed": 0, "scored": 1, "unsupported": 0, "not_triggered": 0, "rate": 0.0},
-    "artifact_created": {"passed": 1, "scored": 1, "unsupported": 0, "not_triggered": 0, "rate": 1.0}
+    "tool_used": {"passed": 0, "scored": 1, "unsupported": 0, "not_triggered": 0, "per_case": 1, "rate": 0.0},
+    "artifact_created": {"passed": 1, "scored": 1, "unsupported": 0, "not_triggered": 0, "per_case": 1, "rate": 1.0}
   }
 }
 ```
@@ -143,6 +144,11 @@ Counts per target, per dimension.
 `unsupported` and `not_triggered` stay out of `rate`. A harness that cannot
 resume a session is not marked down for it, and a run where the skill never
 activated measured the base model rather than your skill.
+
+`per_case` is what says whether a mixed rate is worth acting on. `scored`
+pools every case at a target, so five cases run twice reads as ten runs of
+evidence while being two runs of each of five different things. See
+[how many runs a rate needs](../how-to/measure-your-own-skill.md#how-many-runs-a-rate-needs).
 
 `passed` and `scored` are the whole input to a statistical gate — a Wilson
 bound or a Fisher exact non-inferiority test — which is why shakedown ships

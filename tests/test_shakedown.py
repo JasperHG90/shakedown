@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,7 @@ from shakedown.models import (
     load_config,
     load_skill,
 )
-from shakedown.report import MARKER, Report, RunRecord, Score
+from shakedown.report import MARKER, Report, RunRecord, Score, TurnRecord
 from shakedown.runner import Conversation, _match, converse
 from shakedown.scaffold import HARNESSES
 
@@ -1236,6 +1237,130 @@ def test_the_create_cases_skill_names_commands_that_exist() -> None:
     assert spelled, "the skill is supposed to drive the CLI"
     for command in spelled:
         assert runner.invoke(app, [*command.split(), "--help"]).exit_code == 0, command
+
+
+ANALYZE = REPO / "skills" / "analyze-results" / "SKILL.md"
+
+
+def test_the_analyze_results_skill_names_report_fields_that_exist() -> None:
+    """It routes on the report's own field names, so they have to be real.
+
+    A skill that sends an operator to read `runs[].asked` is worse than no
+    skill: the field was renamed to `replies` precisely because the old
+    name read backwards. Every dotted path the skill quotes is resolved
+    against the models that write the report.
+    """
+    written = set(RunRecord.model_fields) | {"ok", "failed"}
+    known = {
+        "": {"runs", "summary", "scores"},
+        "runs[]": written,
+        "runs[].detail[]": set(TurnRecord.model_fields),
+        "summary": set(Report(skill="s").summary()),
+        "scores.<target>.<dimension>": set(Score.model_fields) | {"rate"},
+    }
+
+    body = ANALYZE.read_text()
+    cited = set(re.findall(r"`((?:runs\[\]|summary|scores)[\w.<>\[\]]*)`", body))
+    assert cited, "the skill is supposed to read the report"
+    for path in cited:
+        # A trailing `[]` names the list itself, as `runs[].detail[]` does.
+        prefix, _, field = path.removesuffix("[]").rpartition(".")
+        assert prefix in known, f"{path}: unknown prefix {prefix!r}"
+        assert field in known[prefix], f"{path}: no such field"
+
+
+def test_the_analyze_results_skill_routes_on_reasons_the_checks_emit(tmp_path: Path) -> None:
+    """The routing keys off the reason strings, so they have to match.
+
+    Pinned in both directions. Skill to checks catches a phrase the skill
+    routes on that nothing emits any more. Checks to skill catches the
+    worse case: a failing shape the checks can produce that the skill says
+    nothing about, which is how the two turn-cap reasons went missing.
+    Reason A ends in the same words as the `no match` stall and means
+    close to the opposite, so an uncovered shape does not go unrouted, it
+    goes misrouted.
+
+    The reasons are produced by calling the checks rather than read out of
+    `checks.py`, where concatenation splits `was written anyway` across
+    two string literals and a grep for it finds nothing.
+    """
+    spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
+    stalled = Conversation(
+        turns=[Turn()], workspace=tmp_path, unmatched=True, unmatched_tail="Who owns this?"
+    )
+    # Nothing flagged unmatched and a reply still owed is the six-turn cap.
+    capped = Conversation(turns=[Turn()], workspace=tmp_path)
+    timed = Conversation(turns=[Turn()], workspace=tmp_path, timed_out=True)
+
+    def owed(convo_: Conversation) -> str:
+        return inputs_resolved(convo_, spec, harness()).reason
+
+    # (reason, the fragment of it the skill must route on). Every failing
+    # shape `tool_used` and `inputs_resolved` can produce appears once.
+    pairs = [
+        (
+            tool_used(
+                convo(tmp_path, [("Bash", {"command": "planctl write"})], [], denied=["Bash"]),
+                "planctl",
+            ).reason,
+            "was requested but denied",
+        ),
+        (tool_used(convo(tmp_path, [], []), "planctl").reason, "no tool call mentions"),
+        (owed(stalled), "no `match` fired"),
+        (owed(capped), "went unsupplied"),
+        (owed(timed), "the run timed out"),
+    ]
+    (tmp_path / "PLAN.md").write_text("Owner: someone-invented\n")
+    pairs += [
+        (owed(stalled), "was written anyway"),
+        (owed(capped), "was written with"),
+        (owed(convo(tmp_path, [], ["platform-team"])), "replies absent from the artifacts"),
+    ]
+
+    body = ANALYZE.read_text()
+    for reason, phrase in pairs:
+        assert phrase in reason, f"no check emits {phrase!r} any more; it says {reason!r}"
+        assert phrase in body, f"the skill does not route {reason!r}"
+    assert len({p for _, p in pairs}) == len(pairs), "a shape is pinned twice"
+
+
+def test_the_analyze_results_skill_names_commands_that_exist() -> None:
+    """It tells people to run things, so the things have to be real."""
+    from typer.testing import CliRunner
+
+    from shakedown.cli import app
+
+    runnable = "\n".join(re.findall(r"```bash\n(.*?)```", ANALYZE.read_text(), re.DOTALL))
+    runner = CliRunner()
+    spelled = set(re.findall(r"^shakedown ((?:case )?[a-z-]+)", runnable, re.MULTILINE))
+    assert spelled, "the skill is supposed to drive the CLI"
+    for command in spelled:
+        assert runner.invoke(app, [*command.split(), "--help"]).exit_code == 0, command
+
+
+def test_the_analyze_results_skill_reads_a_report_the_library_writes(tmp_path: Path) -> None:
+    """Its `jq` filters run against a real report, not an imagined one.
+
+    The report is written by `Report.write`, so the filters are extracted
+    from the skill and applied to that, which catches a path that drifted
+    as well as a filter that will not parse.
+    """
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("jq is not installed")
+
+    written = Report(
+        skill="write-plan",
+        runs=[record(Status.FAIL), record(Status.PASS), record(Status.NOT_TRIGGERED)],
+    ).write(tmp_path / "shakedown-report.json")
+
+    filters = re.findall(r"^jq (?:-\w+ )*'(.*?)'", ANALYZE.read_text(), re.DOTALL | re.MULTILINE)
+    assert len(filters) >= 5, "the skill is supposed to show how to read the report"
+    for expression in filters:
+        done = subprocess.run(
+            [jq, expression, str(written)], capture_output=True, text=True, check=False
+        )
+        assert done.returncode == 0, f"{expression}\n{done.stderr}"
 
 
 def test_canary_is_a_loadable_skill() -> None:

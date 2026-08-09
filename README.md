@@ -147,7 +147,10 @@ Then point it at your own skill, from your own repository:
 overwrite a `shakedown.toml` already there. To write the cases for it, the
 bundled [`create-cases`](skills/create-cases/SKILL.md) skill reads your
 skill, drafts cases for the three checks, writes any fixtures they need,
-and offers to run them.
+and offers to run them. Afterwards
+[`analyze-results`](skills/analyze-results/SKILL.md) reads the report the
+run wrote and says which file each failure belongs to, since a low rate is
+as often the cases file as the skill.
 
 ```bash
 shakedown init --harness claude-code    # a config, and shakedowns/ to put cases in
@@ -284,6 +287,7 @@ src/shakedown/
   cli.py          a thin front for pytest
 skills/
   add-harness/     how to describe a harness shakedown does not ship
+  analyze-results/ how to read a report and say which file to open
   create-cases/    how to write a cases file for a skill you already have
 examples/
   write-plan/      SKILL.md, bin/planctl
