@@ -35,6 +35,14 @@ class Conversation(BaseModel):
     given: list[str] = Field(default_factory=list)
     workspace: Path = Path()
     timed_out: bool = False
+    #: Whether the conversation ended with a reply still owed and nothing
+    #: matching what was said. Reporting that as "never asked" is a guess.
+    #: That no pattern fired is the fact.
+    unmatched: bool = False
+    #: The tail of what was said when it did. A turn of nothing but tool
+    #: calls says nothing at all, so an empty tail is still a stall and
+    #: `unmatched` is what carries it.
+    unmatched_tail: str = ""
 
     @property
     def first(self) -> Turn:
@@ -133,6 +141,12 @@ def converse(
         # turns, so matching without this re-answers until the cap.
         reply = _match(turn.said(), case, convo.given)
         if reply is None:
+            # Three things end the loop here, and only one is a finding: a
+            # reply still owed. A case that withholds nothing, or one whose
+            # every answer landed, stopped because it was finished.
+            if any(a.reply not in convo.given for a in case.answers):
+                convo.unmatched = True
+                convo.unmatched_tail = turn.said()[-500:]
             break
         convo.given.append(reply)
         if notify:

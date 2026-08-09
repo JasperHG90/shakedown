@@ -215,13 +215,17 @@ reply = "Billing migration"
 
 Both replies must reach the artifacts for the check to pass.
 
+A reply the run never supplies fails the check and quotes what the agent
+last said, which is where a `match` that missed the phrasing shows up. The
+same quote is in the JSON report as `unmatched_tail`.
+
 ### When `inputs_resolved` reports `unsupported`
 
 | Situation | Why |
 |---|---|
 | The case declares no `answers` | Nothing was withheld |
 | The harness declares no `resume` command | It cannot physically be asked a follow-up |
-| The case declares `answers` but no artifacts | The harness asked and was answered, but nothing can prove the answer was used |
+| Every reply was supplied, and the case declares no artifacts | The harness asked and was answered, but nothing can prove the answer was used |
 
 ## Limits
 

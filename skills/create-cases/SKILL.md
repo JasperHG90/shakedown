@@ -59,8 +59,9 @@ reply appearing in an artifact, so a case with `answers` and no
 **Double every backslash in `match`.** It is a TOML basic string, where
 `\b` is a backspace character rather than a word boundary, so
 `match = "(?i)\bowner\b"` compiles to a pattern that can never fire. The
-case then passes validation, costs a real run, and fails with "the harness
-never asked" — pointing at the skill when the fault is in this file.
+case then passes validation, costs a real run, and fails with "no `match`
+fired", quoting back a question the agent asked plainly. The fault is in
+this file.
 
 ```toml
 [[case]]

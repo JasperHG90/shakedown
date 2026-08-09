@@ -99,7 +99,10 @@ def failures_table(failures: list[dict[str, Any]]) -> Table:
             str(failure["case"]),
             str(failure["run"]),
             Text(", ".join(failure["failed"]), style="red"),
-            "; ".join(failure["reasons"]),
+            # A reason can quote the agent, and rich reads `[dim]` in a bare
+            # string as markup: it would swallow the brackets, and an
+            # unopened `[/x]` would raise out of the terminal summary.
+            Text("; ".join(failure["reasons"])),
             Text(failure["workspace"] or "(cleaned)", style="dim"),
         )
     return table

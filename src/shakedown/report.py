@@ -19,6 +19,21 @@ REPORT_NAME = "shakedown-report.json"
 MARKER = "<!-- shakedown-report -->"
 
 
+def _plain(reason: str) -> str:
+    """Keep a quoted reason from closing the comment's fold.
+
+    A reason can quote the agent, so up to 500 characters of its prose land
+    inside the `<details>` block, where a literal `</details>` would end
+    the block early. That is the whole hazard. An unclosed backtick run
+    renders literally under CommonMark, and rewriting the quote's backticks
+    would edit the paths, flags and shell it exists to show. A `<` the
+    agent put inside a code span reads as `&lt;` there, since entity
+    references are not decoded in code spans: a cosmetic loss, never a
+    structural one.
+    """
+    return reason.replace("<", "&lt;")
+
+
 class TurnRecord(BaseModel):
     """What one harness invocation did, enough to debug a failure from."""
 
@@ -43,7 +58,14 @@ class RunRecord(BaseModel):
     prompt: str = ""
     results: list[Result]
     turns: int = 0
-    asked: list[str] = Field(default_factory=list)
+    #: What shakedown supplied. Named for that rather than for the
+    #: questions, which nothing here records: a reader given the replies
+    #: under the name `asked` takes them for the agent's own words. Those
+    #: are in `detail[].said`.
+    replies: list[str] = Field(default_factory=list)
+    #: What the agent last said when a reply was still owed and no `match`
+    #: fired, so the ambiguous ending is readable without `--keep`.
+    unmatched_tail: str = ""
     workspace: str = ""
     workspace_kept: bool = False
     duration_s: float = 0.0
@@ -199,7 +221,7 @@ class Report(BaseModel):
             listed = "\n".join(
                 f"- **{f['case']}** run {f['run']} on `{f['target']}`\n"
                 + "\n".join(
-                    f"  - `{name}`: {reason}"
+                    f"  - `{name}`: {_plain(reason)}"
                     for name, reason in zip(f["failed"], f["reasons"], strict=True)
                 )
                 for f in failures

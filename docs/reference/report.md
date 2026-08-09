@@ -63,7 +63,8 @@ it was cleaned up), and `streams` (the raw harness output per turn).
 | `prompt` | string | What the agent was asked |
 | `results` | array | One per check. See [results](#results) |
 | `turns` | int | Harness invocations this scenario took |
-| `asked` | array of strings | Replies supplied in answer to the harness's questions |
+| `replies` | array of strings | What shakedown supplied from `[[case.answers]]` |
+| `unmatched_tail` | string | Last 500 characters of what the agent said when a reply was still owed and no `match` fired. Empty otherwise |
 | `workspace` | string | Directory the run happened in |
 | `workspace_kept` | bool | Whether it still exists |
 | `duration_s` | float | Wall clock for the scenario |
@@ -73,6 +74,11 @@ it was cleaned up), and `streams` (the raw harness output per turn).
 
 A failing run keeps its workspace, so its artifacts and raw streams stay on
 disk. Passing runs are deleted unless you pass `--keep`.
+
+`replies` holds shakedown's side of the conversation. The agent's own words
+are in `detail[].said`, and `unmatched_tail` repeats the ending that no
+`match` covered, so a stalled run reads from the report without opening the
+raw stream.
 
 ### `results`
 

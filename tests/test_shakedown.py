@@ -26,7 +26,7 @@ from shakedown.models import (
     load_skill,
 )
 from shakedown.report import MARKER, Report, RunRecord, Score
-from shakedown.runner import Conversation, _match
+from shakedown.runner import Conversation, _match, converse
 from shakedown.scaffold import HARNESSES
 
 REPO = Path(__file__).resolve().parents[1]
@@ -546,11 +546,189 @@ def test_asking_without_an_artifact_cannot_prove_use(tmp_path: Path) -> None:
     assert "nothing to prove" in result.reason
 
 
-def test_never_asking_fails(tmp_path: Path) -> None:
-    """A harness that invents values instead of asking is the measurement."""
+def test_an_owed_reply_still_scores_as_a_failure(tmp_path: Path) -> None:
+    """Why it went unanswered is ambiguous. That it did is not.
+
+    One reading of that ambiguity is a skill that invented the value, so
+    excluding the run the way an untriggered one is excluded would hide it.
+    """
     spec = case(answers=[Answer(match=re.compile("owner"), reply="x")])
     result = inputs_resolved(convo(tmp_path, [], []), spec, harness())
-    assert result.status is Status.FAIL and "never asked" in result.reason
+    assert result.status is Status.FAIL and result.scored
+
+
+def test_an_owed_reply_is_not_reported_as_a_question_never_asked(tmp_path: Path) -> None:
+    """Matching missed. Whether the agent asked is not something it knows."""
+    spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
+    stalled = Conversation(
+        turns=[Turn()],
+        workspace=tmp_path,
+        unmatched=True,
+        unmatched_tail="And who should this be assigned to?",
+    )
+    result = inputs_resolved(stalled, spec, harness())
+
+    assert result.status is Status.FAIL
+    assert "never asked" not in result.reason
+    assert "platform-team" in result.reason
+    assert "nothing was written" in result.reason
+    assert "And who should this be assigned to?" in result.reason
+
+
+def test_an_artifact_written_without_the_reply_names_both_readings(tmp_path: Path) -> None:
+    """The file separates a refusal to proceed from proceeding on a guess."""
+    spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
+    (tmp_path / "PLAN.md").write_text("Owner: someone-invented\n")
+    stalled = Conversation(
+        turns=[Turn()], workspace=tmp_path, unmatched=True, unmatched_tail="Plan written."
+    )
+    result = inputs_resolved(stalled, spec, harness())
+
+    assert result.status is Status.FAIL
+    assert "PLAN.md was written anyway" in result.reason
+    assert "guessed" in result.reason and "`match`" in result.reason
+
+
+def test_a_quoted_ending_is_flattened_onto_one_line(tmp_path: Path) -> None:
+    """The reason is a table cell and a markdown bullet. Both tear on \\n."""
+    spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
+    stalled = Conversation(
+        turns=[Turn()],
+        workspace=tmp_path,
+        unmatched=True,
+        unmatched_tail="I need two things:\n\n1. the owner\n2. the title",
+    )
+    result = inputs_resolved(stalled, spec, harness())
+
+    assert "\n" not in result.reason
+    assert "I need two things: 1. the owner 2. the title" in result.reason
+
+
+def test_a_case_expecting_no_file_is_not_told_none_was_written(tmp_path: Path) -> None:
+    """It expects no artifact, so a missing one is nothing to report."""
+    spec = case(
+        artifacts=[],
+        artifact=None,
+        answers=[
+            Answer(match=re.compile("owner"), reply="platform-team"),
+            Answer(match=re.compile("title"), reply="billing"),
+        ],
+    )
+    stalled = Conversation(
+        turns=[Turn()],
+        given=["billing"],
+        workspace=tmp_path,
+        unmatched=True,
+        unmatched_tail="Anything else?",
+    )
+    result = inputs_resolved(stalled, spec, harness())
+
+    assert result.status is Status.FAIL
+    assert "nothing was written" not in result.reason
+    assert "no `match` fired for platform-team" in result.reason
+
+
+def test_a_run_that_hit_the_turn_cap_does_not_blame_the_pattern(tmp_path: Path) -> None:
+    """The turn cap ends a run with no failed match behind it."""
+    spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
+    result = inputs_resolved(Conversation(workspace=tmp_path), spec, harness())
+
+    assert result.status is Status.FAIL
+    assert result.reason == "platform-team went unsupplied, and nothing was written"
+
+
+def test_the_turn_cap_does_not_blame_the_pattern_for_a_file_written(tmp_path: Path) -> None:
+    """Neither reading of a written file is established without a match.
+
+    The cap ends the run, so the last thing said was never put to `_match`,
+    and calling it a guess or a missed pattern picks one of two guesses.
+    """
+    spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
+    (tmp_path / "PLAN.md").write_text("Owner: someone-invented\n")
+    result = inputs_resolved(Conversation(workspace=tmp_path), spec, harness())
+
+    assert result.status is Status.FAIL
+    assert result.reason == "PLAN.md was written with platform-team still unsupplied"
+
+
+def test_a_stall_on_a_wordless_turn_is_still_a_stall(tmp_path: Path) -> None:
+    """A turn of nothing but tool calls says nothing, and can still stall.
+
+    Reading the quote's emptiness as "no stall" would report the turn cap
+    and drop the owed reply from `artifact_created`, losing the one
+    distinction this records.
+    """
+    spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
+    silent = Conversation(turns=[Turn()], workspace=tmp_path, unmatched=True)
+
+    assert inputs_resolved(silent, spec, harness()).reason == (
+        "no `match` fired for platform-team, and nothing was written"
+    )
+    assert "platform-team was never supplied" in artifact_created(silent, spec).reason
+
+
+def test_one_answer_landing_does_not_pass_a_case_that_withheld_two(tmp_path: Path) -> None:
+    """Every declared answer has to land, not only the ones supplied.
+
+    Scoring the replies that were given passes a run that got half of what
+    it asked for, so a case withholding two facts scores like one.
+    """
+    spec = case(
+        answers=[
+            Answer(match=re.compile("owner"), reply="platform-team"),
+            Answer(match=re.compile("title"), reply="billing"),
+        ]
+    )
+    (tmp_path / "PLAN.md").write_text("# billing\n")
+    stalled = Conversation(
+        turns=[Turn()],
+        given=["billing"],
+        workspace=tmp_path,
+        unmatched=True,
+        unmatched_tail="Plan written.",
+    )
+    result = inputs_resolved(stalled, spec, harness())
+
+    assert result.status is Status.FAIL
+    assert "platform-team was never supplied" in result.reason
+
+
+def test_a_timed_out_run_is_reported_as_a_timeout(tmp_path: Path) -> None:
+    """The clock ended the conversation before any pattern was tried."""
+    spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
+    stalled = Conversation(turns=[Turn()], workspace=tmp_path, timed_out=True)
+    result = inputs_resolved(stalled, spec, harness())
+
+    assert result.status is Status.FAIL and "timed out" in result.reason
+    assert "never asked" not in result.reason
+
+
+def test_a_missing_artifact_says_a_reply_was_still_owed(tmp_path: Path) -> None:
+    """Otherwise the absent file reads as a skill that forgot to write one."""
+    spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
+    stalled = Conversation(
+        turns=[Turn()], workspace=tmp_path, unmatched=True, unmatched_tail="Anything else?"
+    )
+    result = artifact_created(stalled, spec)
+
+    assert result.status is Status.FAIL
+    assert "PLAN.md was not created" in result.reason
+    assert "platform-team was never supplied" in result.reason
+
+
+def test_a_missing_artifact_blames_no_reply_the_run_never_stalled_on(tmp_path: Path) -> None:
+    """Owing a reply is not the same as stalling on a question.
+
+    A timeout, the turn cap, and a harness that cannot resume all leave
+    replies owed without one going unanswered, and each leaves `unmatched`
+    false. `inputs_resolved` says which, but `Report.failures` collects
+    only failing reasons, so an `unsupported` row there cannot correct a
+    claim made here.
+    """
+    spec = case(answers=[Answer(match=re.compile("owner"), reply="platform-team")])
+    result = artifact_created(Conversation(workspace=tmp_path), spec)
+
+    assert result.reason == "PLAN.md was not created"
 
 
 def test_a_harness_without_resume_is_unsupported(tmp_path: Path) -> None:
@@ -794,6 +972,63 @@ def test_markdown_names_every_failure() -> None:
     assert "- **missing-owner** run 2 on `claude-code/opus`" in written
     assert "  - `artifact_created`: PLAN.md lacks platform-team" in written
     assert "`tool_used`: invoked planctl" not in written, "passing checks are not failures"
+
+
+def test_a_reason_quoting_the_agent_is_not_read_as_markup() -> None:
+    """A reason now carries the agent's words, and rich parses `[...]`.
+
+    An unclosed tag raises out of the terminal summary, which runs after
+    every scenario has already been paid for.
+    """
+    import io
+
+    from rich.console import Console
+
+    from shakedown.console import failures_table
+
+    table = failures_table(
+        [
+            {
+                "case": "c",
+                "run": 0,
+                "failed": ["inputs_resolved"],
+                "reasons": ['it ended on: "say [one] or [/two]"'],
+                "workspace": None,
+            }
+        ]
+    )
+    buffer = io.StringIO()
+    Console(width=200, file=buffer).print(table)
+    rendered = buffer.getvalue()
+
+    assert "[one]" in rendered and "[/two]" in rendered
+
+
+def test_a_reason_quoting_the_agent_cannot_close_the_details_block() -> None:
+    """The comment folds failures away, and the fold is literal HTML.
+
+    Only the fold is at risk. A quote carrying shell, paths or flags keeps
+    them exactly as the agent wrote them, since reading it is the point.
+    """
+    quoted = RunRecord(
+        target="t",
+        model="m",
+        case="c",
+        run=0,
+        results=[
+            Result(
+                name="inputs_resolved",
+                status=Status.FAIL,
+                reason='it ended on: "</details>, `git log --oneline`, a stray ` backtick"',
+            )
+        ],
+    )
+    written = Report(skill="s", runs=[quoted]).markdown()
+
+    assert written.count("</details>") == 1
+    assert "&lt;/details>" in written, "with no `<` it is text, and a bare `>` is harmless"
+    assert "`git log --oneline`" in written
+    assert "a stray ` backtick" in written, "an unclosed run renders literally under CommonMark"
 
 
 def test_markdown_refuses_to_imply_a_pass_when_nothing_ran() -> None:
@@ -1362,6 +1597,99 @@ def _e2e(tmp_path: Path, *extra: str, skill: Path = FAKE / "skill") -> tuple[int
     return invocations, json.loads(report.read_text())
 
 
+def _talk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spec: Case, timeout_s: float = 300.0
+) -> Conversation:
+    """One case through the conversation loop itself, against the fake agent."""
+    from shakedown.sandbox import create
+
+    monkeypatch.setenv("FAKE_COUNTER", str(tmp_path / "count.txt"))
+    fake = load_config(FAKE / "shakedown.toml").harness["fake"]
+    box = create(fake, load_skill(FAKE / "skill"))
+    try:
+        return converse(box, fake, spec, model="m1", timeout_s=timeout_s)
+    finally:
+        box.cleanup()
+
+
+def test_a_case_withholding_nothing_ends_with_nothing_unmatched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fully specified case stops because it is finished, not stuck."""
+    spec = case(prompt="Write a plan. owner: platform-team. title: billing.", artifact="OUT.md")
+    assert _talk(tmp_path, monkeypatch, spec).unmatched is False
+
+
+def test_every_answer_landing_ends_with_nothing_unmatched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The agent asked for everything and got it: the passing path."""
+    spec = case(
+        prompt="Write a plan. title: billing.",
+        artifact="OUT.md",
+        answers=[Answer(match=re.compile("(?i)owner"), reply="platform-team")],
+    )
+    talk = _talk(tmp_path, monkeypatch, spec)
+    assert talk.given == ["platform-team"]
+    assert talk.unmatched is False
+
+
+def test_a_reply_left_owed_records_what_the_agent_last_said(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one ending worth recording, and the only fact it establishes."""
+    spec = case(
+        prompt="Write a plan. title: billing.",
+        artifact="OUT.md",
+        answers=[Answer(match=re.compile("(?i)custodian"), reply="platform-team")],
+    )
+    talk = _talk(tmp_path, monkeypatch, spec)
+    assert talk.given == []
+    assert talk.unmatched is True
+    assert talk.unmatched_tail == "What is the owner for this work?"
+
+
+def test_the_turn_cap_leaves_nothing_unmatched_behind_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Owed replies at the cap, and no question anyone failed to answer.
+
+    `artifact_created` blames an owed reply only on `unmatched`, so a cap
+    that set it would put a question the agent never asked into the PR
+    comment. Two turns is the cap the fake agent needs to hit it.
+    """
+    from shakedown import runner
+
+    monkeypatch.setattr(runner, "TURN_CAP", 2)
+    spec = case(
+        prompt="Write a plan.",
+        artifact="OUT.md",
+        answers=[
+            Answer(match=re.compile("(?i)owner"), reply="platform-team"),
+            Answer(match=re.compile("(?i)title"), reply="billing"),
+        ],
+    )
+    talk = _talk(tmp_path, monkeypatch, spec)
+
+    assert talk.given == ["platform-team"], "the cap stopped it one reply short"
+    assert talk.unmatched is False
+
+
+def test_a_timed_out_run_leaves_nothing_unmatched_behind_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The clock ends the run before anything is put to `_match`."""
+    spec = case(
+        prompt="Write a plan. title: billing.",
+        artifact="OUT.md",
+        answers=[Answer(match=re.compile("(?i)owner"), reply="platform-team")],
+    )
+    talk = _talk(tmp_path, monkeypatch, spec, timeout_s=0.01)
+
+    assert talk.timed_out is True
+    assert talk.unmatched is False
+
+
 def test_end_to_end_runs_each_scenario_once(tmp_path: Path) -> None:
     """Three cases at repeat 2 is six scenarios, not six times four.
 
@@ -1377,13 +1705,14 @@ def test_end_to_end_runs_each_scenario_once(tmp_path: Path) -> None:
 def test_a_case_may_ask_for_several_things(tmp_path: Path) -> None:
     """Answers is a list, and one unused match is supplied per turn."""
     _, report = _e2e(tmp_path)
-    asked = {r["case"]: r["asked"] for r in report["runs"]}
+    replies = {r["case"]: r["replies"] for r in report["runs"]}
     turns = {r["case"]: r["turns"] for r in report["runs"]}
 
-    assert asked["missing-both"] == ["platform-team", "billing"]
+    assert all("asked" not in r for r in report["runs"]), "the field names what we supplied"
+    assert replies["missing-both"] == ["platform-team", "billing"]
     assert turns["missing-both"] == 3
-    assert asked["missing-owner"] == ["platform-team"]
-    assert asked["specified"] == []
+    assert replies["missing-owner"] == ["platform-team"]
+    assert replies["specified"] == []
 
     resolved = [
         r

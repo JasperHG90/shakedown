@@ -37,6 +37,11 @@ class Result(BaseModel):
         return self.status in (Status.PASS, Status.FAIL)
 
 
+def _owed(convo: Conversation, case: Case) -> list[str]:
+    """Replies the case declared that the run never supplied."""
+    return [a.reply for a in case.answers if a.reply not in convo.given]
+
+
 def skill_fired(convo: Conversation, harness: Harness, skill_name: str) -> Result:
     """Did the skill activate? If not, the run measured the base model."""
     if convo.skill_fired(harness, skill_name):
@@ -97,6 +102,16 @@ def artifact_created(convo: Conversation, case: Case) -> Result:
             problems.append(f"{artifact.path} lacks {', '.join(missing)}")
 
     if problems:
+        # A file missing because the run stalled on a reply it never got is
+        # a different defect from one the agent simply did not write.
+        # `unmatched` is that stall: a timeout, a turn cap, and a harness
+        # that cannot resume all owe replies too, and none of them stalled
+        # on a question. Blaming those here is the worse mistake, because
+        # `Report.failures` collects only failing reasons, so the
+        # `unsupported` line that would correct it never reaches the
+        # comment.
+        if convo.unmatched and (owed := _owed(convo, case)):
+            problems.append(f"{', '.join(owed)} was never supplied")
         return Result(name="artifact_created", status=Status.FAIL, reason="; ".join(problems))
     written = ", ".join(a.path for a in case.artifacts)
     return Result(name="artifact_created", status=Status.PASS, reason=f"{written} written")
@@ -118,11 +133,48 @@ def inputs_resolved(convo: Conversation, case: Case, harness: Harness) -> Result
             status=Status.UNSUPPORTED,
             reason=f"{harness.name} declares no resume command",
         )
-    if not convo.given:
+    if owed := _owed(convo, case):
+        unsupplied = ", ".join(owed)
+        if convo.timed_out:
+            return Result(
+                name="inputs_resolved",
+                status=Status.FAIL,
+                reason=f"the run timed out with {unsupplied} unsupplied, "
+                "so it says nothing about whether the harness asked",
+            )
+        # Onto one line: this lands in a table cell and in a markdown
+        # bullet, and the agent's own line breaks would tear both apart.
+        tail = " ".join(convo.unmatched_tail.split())
+        ended = f'; it ended on: "{tail}"' if tail else ""
+        written = ", ".join(a.path for a in case.artifacts if (convo.workspace / a.path).is_file())
+        # Only a case that expects a file can be said to be missing one.
+        nothing = ", and nothing was written" if case.artifacts else ""
+        # Nothing unmatched means the turn cap ended the run, so the last
+        # thing said never reached `_match`. Neither the pattern nor the
+        # agent can be blamed for words nothing was tried against.
+        if not convo.unmatched:
+            return Result(
+                name="inputs_resolved",
+                status=Status.FAIL,
+                reason=f"{written} was written with {unsupplied} still unsupplied"
+                if written
+                else f"{unsupplied} went unsupplied{nothing}",
+            )
+        # Matching cannot separate a question phrased past the pattern from
+        # no question at all, so neither is claimed here. What does separate
+        # them is whether the run went ahead and wrote the file regardless.
+        if written:
+            return Result(
+                name="inputs_resolved",
+                status=Status.FAIL,
+                reason=f"{unsupplied} was never supplied, yet {written} was written "
+                f"anyway: the agent either guessed, or asked in words no `match` "
+                f"caught and went ahead{ended}",
+            )
         return Result(
             name="inputs_resolved",
             status=Status.FAIL,
-            reason="the harness never asked, so no reply was supplied",
+            reason=f"no `match` fired for {unsupplied}{nothing}{ended}",
         )
     if not case.artifacts:
         return Result(

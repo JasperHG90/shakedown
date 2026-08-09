@@ -161,10 +161,18 @@ asking about, rather than paying for the whole matrix twenty times.
 front-matter `description` — that is what the model matches a request
 against — and confirm `doctor` row 2 passes for this harness.
 
-**`inputs_resolved` fails but the agent clearly asked.** Either `match`
-missed the phrasing, or the reply never reached the file. Open the failing
-run's workspace and read `.shakedown-turn0.jsonl` to see what the agent
-actually said.
+**`inputs_resolved` fails.** The reason names the cause. "no `match` fired
+for X, and nothing was written" quotes what the agent ended on: read that
+quote to tell a question your pattern missed from a refusal to proceed.
+"X was never supplied, yet PLAN.md was written anyway" means the file
+arrived regardless, so the skill either guessed the value or asked past
+your pattern and carried on. "replies absent from the artifacts" means the
+answer was supplied and then ignored. A timeout says so, and is evidence
+about neither. "X went unsupplied" and "PLAN.md was written with X still
+unsupplied" are the six-turn cap, which ends a run without putting its last
+words to any pattern, so there is nothing to quote and nobody to blame. The
+quoted ending is in the JSON report as `unmatched_tail`, so you can read it
+without opening the raw stream in the workspace.
 
 **`tool_used` says "was requested but denied".** The harness refused the
 call. Add the permission flag to `start` in `shakedown.toml` — for Claude
