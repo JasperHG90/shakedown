@@ -64,7 +64,7 @@ mypy_path = "src"
 # three times over: they are byte-identical to the original by test, and
 # three modules of the same name is an error rather than more coverage.
 files = ["src/shakedown", "tests", "plugins"]
-exclude = "plugins/(claude-code|gemini)/"
+exclude = "plugins/(claude-code|gemini|opencode)/"
 strict = true
 
 [tool.pytest.ini_options]

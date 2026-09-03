@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Copy the shared pieces into each plugin, so each one stands alone.
 
-Both harnesses install a plugin by copying its directory and nothing
-else. A hook command reaching outside that directory — `${ROOT}/../` —
-therefore points at nothing once installed, and on the pre-tool hook that
-failure exits 2, which is the block code: every shell command in the
-session refused, by a plugin meant to save money.
+Every harness installs a plugin as its directory and nothing else —
+Claude Code and Gemini copy it, opencode loads it in place or from an
+npm tarball. A hook command reaching outside that directory —
+`${ROOT}/../` — therefore points at nothing once installed, and on the
+pre-tool hook that failure exits 2, which is the block code: every shell
+command in the session refused, by a plugin meant to save money.
 
 So the script and the skills are vendored into each plugin rather than
 shared by reference. That means copies, and copies drift, which is what
@@ -23,7 +24,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-PLUGINS = (REPO / "plugins/claude-code", REPO / "plugins/gemini")
+PLUGINS = (REPO / "plugins/claude-code", REPO / "plugins/gemini", REPO / "plugins/opencode")
 #: Canonical source, and where it lands inside every plugin.
 SHARED = {
     REPO / "plugins/scripts/shakedown_hooks.py": Path("scripts/shakedown_hooks.py"),

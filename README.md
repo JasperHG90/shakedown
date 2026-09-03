@@ -208,11 +208,11 @@ Three skills and the images they can run in, all runnable as-is:
 
 ## Plugins
 
-[`plugins/`](plugins) holds a Claude Code plugin and a Gemini CLI
-extension over one set of hooks: they tell you at session start when
-shakedown is not installed or the config declares a variable you have not
-exported, check a cases file the moment it is written, and stop a paid
-`case run` whose cases file cannot load.
+[`plugins/`](plugins) holds a Claude Code plugin, a Gemini CLI extension,
+and an opencode plugin over one set of hooks: they tell you at session
+start when shakedown is not installed or the config declares a variable
+you have not exported, check a cases file the moment it is written, and
+stop a paid `case run` whose cases file cannot load.
 
 ## Adding a harness
 

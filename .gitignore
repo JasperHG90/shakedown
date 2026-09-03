@@ -19,3 +19,6 @@ image*.png
 # A double records its calls beside itself when it is run by hand from the
 # fixtures directory, rather than from the workspace it was seeded into.
 *-calls.log
+
+# Finder droppings.
+.DS_Store

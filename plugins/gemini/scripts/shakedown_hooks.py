@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Hook bodies shared by the Claude Code plugin and the Gemini extension.
+"""Hook bodies shared by the Claude Code, Gemini, and opencode plugins.
 
-One implementation behind two manifests, because two copies of a warning
+One implementation behind three thin plugins, because copies of a warning
 drift and then disagree about what the tool does.
 
 Every hook here is free: it reads files, parses TOML, and at most runs
@@ -9,14 +9,16 @@ Every hook here is free: it reads files, parses TOML, and at most runs
 would be a hook nobody could afford to leave on.
 
 Invoked as `shakedown_hooks.py <hook>` with the harness's JSON event on
-stdin. The two harnesses name their events differently — Gemini ships the
+stdin. The harnesses name their events differently — Gemini ships the
 mapping in its own bundle, `PreToolUse: "BeforeTool"`, `PostToolUse:
-"AfterTool"` — but the payloads agree on the fields used here, and a field
-that is missing is treated as absent rather than fatal.
+"AfterTool"`, and opencode's bridge translates in `index.js` — but the
+payloads agree on the fields used here, and a field that is missing is
+treated as absent rather than fatal.
 
-Exit codes follow the Claude Code contract, which Gemini shares: 0 allows,
-2 blocks and shows stderr to the model. Only one condition blocks. See
-`decide_run`.
+Exit codes follow the Claude Code contract: 0 allows, 2 blocks and shows
+stderr to the model. Gemini shares it as is; the opencode bridge turns
+exit 2 into a thrown Error, which is the same verdict there. Only one
+condition blocks. See `decide_run`.
 """
 
 from __future__ import annotations

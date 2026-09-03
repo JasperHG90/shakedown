@@ -1,4 +1,4 @@
-"""The hooks the two plugins share. Offline: no harness, no spend.
+"""The hooks the plugins share. Offline: no harness, no spend.
 
 Loaded by path rather than imported, because the scripts ship inside the
 plugins rather than in the package: they have to keep working when a user
@@ -10,7 +10,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +23,9 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "plugins/scripts/shakedown_hooks.py"
+BRIDGE = REPO / "plugins/opencode/index.js"
+#: opencode plugins are JavaScript, so exercising one takes a JS runtime.
+NODE = shutil.which("node")
 
 
 def load() -> ModuleType:
@@ -459,15 +464,17 @@ def test_each_manifest_matches_its_own_harness_tool_names(
     assert found == expected
 
 
-@pytest.mark.parametrize("plugin", ["claude-code", "gemini"])
+@pytest.mark.parametrize("plugin", ["claude-code", "gemini", "opencode"])
 def test_a_plugin_carries_everything_it_needs(plugin: str) -> None:
     """Installing a plugin copies its directory and nothing else.
 
-    Both harnesses do this, so a hook command reaching outside the plugin
-    finds nothing once installed — and on the pre-tool hook that failure
-    exits 2, the block code, refusing every shell command in the session.
-    Confirmed by installing from the marketplace and looking in the cache:
-    the copy held exactly the two manifest files and no script.
+    Every harness does this — Claude Code and Gemini copy the directory,
+    opencode packs it into an npm tarball — so a hook command reaching
+    outside the plugin finds nothing once installed. On the pre-tool hook
+    that failure exits 2, the block code, refusing every shell command in
+    the session. Confirmed by installing from the marketplace and looking
+    in the cache: the copy held exactly the two manifest files and no
+    script.
     """
     root = REPO / "plugins" / plugin
     assert (root / "scripts/shakedown_hooks.py").is_file()
@@ -571,3 +578,199 @@ def test_the_script_runs_as_a_program(tmp_path: Path) -> None:
         check=False,
     )
     assert done.returncode == hooks.ALLOW, done.stderr
+
+
+def test_the_opencode_bridge_names_hooks_that_exist() -> None:
+    """opencode has no hook manifest, so its bridge names them in code.
+
+    Same failure as a typo'd manifest: a hook name the script has no arm
+    for answers with "unknown hook" and the check silently never runs.
+    """
+    named = re.findall(r'consult\("([a-z-]+)"', BRIDGE.read_text())
+    assert named, "a bridge that consults nothing is a plugin that does nothing"
+    for name in named:
+        assert name in hooks.HOOKS, f"index.js runs {name!r}, which the script has no arm for"
+
+
+def test_the_opencode_bridge_uses_its_own_harness_vocabulary() -> None:
+    """opencode names the tools `bash`, `write`, and `edit`, and the
+    moments `tool.execute.before`, `tool.execute.after`, and a
+    `session.created` event.
+
+    A Claude tool or event name here would parse and then never fire,
+    which is the same dead-config failure the manifest tests pin.
+    """
+    source = BRIDGE.read_text()
+    compared = set(re.findall(r'input\.tool !== "([a-z_]+)"', source))
+    assert compared == {"bash", "write", "edit"}
+    for moment in ('"tool.execute.before"', '"tool.execute.after"', '"session.created"'):
+        assert moment in source, f"{moment} is the opencode name for a mapped hook"
+
+
+def test_the_opencode_bridge_builds_the_payload_the_script_reads() -> None:
+    """The script reads `tool_input.command` and `tool_input.file_path`;
+    opencode hands the bridge `args.command` and `args.filePath`.
+
+    The renaming lives in the bridge, so the bridge is where it drifts.
+    """
+    source = BRIDGE.read_text()
+    assert "tool_input: { command }" in source
+    assert "tool_input: { file_path: filePath }" in source
+
+
+def test_the_opencode_bridge_stays_inside_its_plugin() -> None:
+    """`..` in the bridge is a path that exists in the clone and nowhere
+    else once the plugin is installed from a tarball."""
+    assert "../" not in BRIDGE.read_text()
+
+
+def test_the_opencode_plugin_is_loadable_by_path() -> None:
+    """opencode resolves a directory plugin through package.json, so the
+    entry it names has to be the file that is actually there."""
+    manifest = json.loads((REPO / "plugins/opencode/package.json").read_text())
+    assert manifest["type"] == "module", "opencode imports the entry as an ES module"
+    assert (REPO / "plugins/opencode" / manifest["main"]).is_file()
+
+
+def drive_bridge(tmp_path: Path, body: str) -> subprocess.CompletedProcess[str]:
+    """Load the bridge under node and run one scripted exchange with it.
+
+    The scriptlet gets a stub client whose toasts land in `toasts`, and
+    prints them last so every test can see what the operator was told.
+    """
+    where = json.dumps(str(tmp_path))
+    scriptlet = tmp_path / "drive.mjs"
+    scriptlet.write_text(
+        f"import {{ ShakedownPlugin }} from {json.dumps(BRIDGE.resolve().as_uri())}\n"
+        "const toasts = []\n"
+        "const client = { tui: { showToast: async (toast) => toasts.push(toast.body.message) } }\n"
+        f"const bridge = await ShakedownPlugin({{ client, directory: {where} }})\n"
+        f"{body}\n"
+        'console.log("toasts: " + JSON.stringify(toasts))\n'
+    )
+    assert NODE is not None
+    return subprocess.run(
+        [NODE, str(scriptlet)], capture_output=True, text=True, cwd=tmp_path, check=False
+    )
+
+
+@pytest.mark.skipif(NODE is None, reason="the opencode bridge only runs under a JS runtime")
+def test_the_opencode_bridge_blocks_by_throwing(tmp_path: Path) -> None:
+    """opencode has no exit codes; a thrown Error is what stops the tool
+    and puts the script's stderr in front of the model."""
+    _skill(tmp_path)
+    broken = _cases(
+        tmp_path, 'skill = "../my-skill"\nfixture = "../x"\n[[case]]\nname="c"\nprompt="p"\n'
+    )
+
+    done = drive_bridge(
+        tmp_path,
+        "try {\n"
+        '  await bridge["tool.execute.before"]({ tool: "bash", sessionID: "s", callID: "c" }, '
+        f"{{ args: {{ command: {json.dumps(f'shakedown case run {broken}')} }} }})\n"
+        '  console.log("verdict: allowed")\n'
+        "} catch (error) {\n"
+        '  console.log("verdict: blocked " + error.message)\n'
+        "}",
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert "verdict: blocked" in done.stdout
+    assert "does not load" in done.stdout
+
+
+@pytest.mark.skipif(NODE is None, reason="the opencode bridge only runs under a JS runtime")
+def test_the_opencode_bridge_leaves_other_commands_alone(tmp_path: Path) -> None:
+    """The gate sits on every bash call, so it has to be quiet."""
+    done = drive_bridge(
+        tmp_path,
+        'await bridge["tool.execute.before"]({ tool: "bash", sessionID: "s", callID: "c" }, '
+        '{ args: { command: "ls -la" } })\n'
+        'console.log("verdict: allowed")',
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert "verdict: allowed" in done.stdout
+    assert "toasts: []" in done.stdout
+
+
+@pytest.mark.skipif(NODE is None, reason="the opencode bridge only runs under a JS runtime")
+def test_the_opencode_bridge_puts_the_warning_in_the_tool_output(tmp_path: Path) -> None:
+    """`additionalContext` has no opencode twin. Appending to the tool
+    result is the one channel that reaches the model on an allowing
+    verdict, so the warning has to land there — after what the tool
+    already said, not instead of it."""
+    _skill(tmp_path)
+    broken = _cases(
+        tmp_path, 'skill = "../my-skill"\nfixture = "../x"\n[[case]]\nname="c"\nprompt="p"\n'
+    )
+
+    done = drive_bridge(
+        tmp_path,
+        'const output = { title: "", output: "wrote it", metadata: {} }\n'
+        'await bridge["tool.execute.after"]({ tool: "write", sessionID: "s", callID: "c", '
+        f"args: {{ filePath: {json.dumps(str(broken))} }} }}, output)\n"
+        'console.log("result: " + output.output)',
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert "does not load yet" in done.stdout
+    assert done.stdout.index("wrote it") < done.stdout.index("does not load yet")
+
+
+@pytest.mark.skipif(NODE is None, reason="the opencode bridge only runs under a JS runtime")
+def test_a_bridge_without_its_script_blocks_nothing_and_says_so(tmp_path: Path) -> None:
+    """python3 answers a missing file with exit 2 — the block code.
+
+    A mangled install would otherwise refuse every shell command in the
+    session, which is the same failure the vendoring exists to prevent.
+    So the tool arms answer with silence — and session start with a toast,
+    or that install would stay quietly dead forever. Pinned by loading the
+    bridge from a copy that has no `scripts/`.
+    """
+    orphan = tmp_path / "index.js"
+    orphan.write_text(BRIDGE.read_text())
+    where = json.dumps(str(tmp_path))
+    scriptlet = tmp_path / "drive.mjs"
+    scriptlet.write_text(
+        f"import {{ ShakedownPlugin }} from {json.dumps(orphan.as_uri())}\n"
+        "const toasts = []\n"
+        "const client = { tui: { showToast: async (toast) => toasts.push(toast.body.message) } }\n"
+        f"const bridge = await ShakedownPlugin({{ client, directory: {where} }})\n"
+        'await bridge["tool.execute.before"]({ tool: "bash", sessionID: "s", callID: "c" }, '
+        '{ args: { command: "shakedown case run ./anything" } })\n'
+        'console.log("verdict: allowed")\n'
+        'await bridge.event({ event: { type: "session.created", '
+        'properties: { info: { id: "root" } } } })\n'
+        'console.log("toasts: " + JSON.stringify(toasts))\n'
+    )
+    assert NODE is not None
+    done = subprocess.run(
+        [NODE, str(scriptlet)], capture_output=True, text=True, cwd=tmp_path, check=False
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert "verdict: allowed" in done.stdout
+    assert "script is missing" in done.stdout, "session start is the one voice a dead install has"
+
+
+@pytest.mark.skipif(NODE is None, reason="the opencode bridge only runs under a JS runtime")
+def test_the_opencode_bridge_greets_only_the_root_session(tmp_path: Path) -> None:
+    """Subagent sessions carry a parentID and arrive in bursts.
+
+    The parent already heard the session-start message, so toasting it
+    once per subagent is how a hook earns being turned off.
+    """
+    done = drive_bridge(
+        tmp_path,
+        'await bridge.event({ event: { type: "session.created", '
+        'properties: { info: { id: "child", parentID: "root" } } } })\n'
+        'console.log("after child: " + toasts.length)\n'
+        'await bridge.event({ event: { type: "session.created", '
+        'properties: { info: { id: "root" } } } })\n'
+        'console.log("after root: " + toasts.length)',
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert "after child: 0" in done.stdout
+    assert "after root: 1" in done.stdout

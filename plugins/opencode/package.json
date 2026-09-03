@@ -1,0 +1,15 @@
+{
+  "name": "opencode-shakedown",
+  "version": "0.1.0",
+  "description": "Smoke-test agent skills across harnesses and models: author cases for a skill, describe a harness, and check both before spending anything.",
+  "homepage": "https://github.com/JasperHG90/shakedown",
+  "author": "Jasper Ginn (https://github.com/JasperHG90)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "scripts",
+    "skills"
+  ]
+}

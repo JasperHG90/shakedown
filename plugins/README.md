@@ -1,9 +1,11 @@
 # Plugins
 
-The same three hooks for Claude Code and for Gemini CLI, over one set of
-scripts. Two copies of a warning drift and then disagree about what the
-tool does, so `scripts/shakedown_hooks.py` is the only implementation and
-each manifest is a few lines pointing at it.
+The same three hooks for Claude Code, Gemini CLI, and opencode, over one
+set of scripts. Copies of a warning drift and then disagree about what
+the tool does, so `scripts/shakedown_hooks.py` is the only implementation
+and each plugin is a few lines pointing at it — two JSON manifests, and
+for opencode a small JavaScript bridge, because opencode has no hook
+manifest to write.
 
 ## Install
 
@@ -24,16 +26,33 @@ so the repository root carries a `.claude-plugin/marketplace.json` naming
 this one. `--plugin-dir` is the development form: it loads the directory
 directly, which is what you want while changing the hooks.
 
+opencode loads a plugin from a path in its config, and reads skills from
+its own skill directories rather than from plugins, so both are named in
+`opencode.json` — the project's, or `~/.config/opencode/opencode.json`
+for every project:
+
+```json
+{
+  "plugin": ["file:///absolute/path/to/shakedown/plugins/opencode"],
+  "skills": { "paths": ["/absolute/path/to/shakedown/plugins/opencode/skills"] }
+}
+```
+
+On an opencode too old for `skills.paths`, link the vendored skills into
+a directory it scans instead: `ln -s .../plugins/opencode/skills/*
+~/.config/opencode/skills/`.
+
 ### Each plugin stands alone, and that means copies
 
-Installing copies the plugin directory and nothing else — I checked the
-cache after a marketplace install and found exactly the two manifest
-files. So a hook command reaching outside its own directory finds nothing
-once installed, and on the `PreToolUse` hook that failure exits 2, the
-block code: every shell command in the session refused, by a plugin meant
-to save money.
+An installed plugin is its directory and nothing else — Claude Code and
+Gemini copy it (I checked the cache after a marketplace install and found
+exactly the two manifest files), and opencode packs it into an npm
+tarball or loads it in place. So a hook command reaching outside its own
+directory finds nothing once installed, and on the `PreToolUse` hook that
+failure exits 2, the block code: every shell command in the session
+refused, by a plugin meant to save money.
 
-The script and both skills are therefore vendored into each plugin rather
+The script and the skills are therefore vendored into each plugin rather
 than shared by reference. Copies drift, so `plugins/sync.py` writes them
 and a test fails when they are stale:
 
@@ -45,12 +64,14 @@ python plugins/sync.py --check   # what CI asks
 Edit the originals — `plugins/scripts/shakedown_hooks.py`, `skills/*` —
 and sync. Editing a copy is what the test is there to catch.
 
-Both root variables are substituted as plain text into a command the
-harness then hands to a shell, so the path is quoted in every hook. Without
-the quotes, a clone in a directory whose name contains a space makes
-`python3` fail to find the script — and on the `PreToolUse` hook, that
-failure exits 2, which is the block code. Every shell command in the
-session would be refused.
+Both manifest root variables are substituted as plain text into a command
+the harness then hands to a shell, so the path is quoted in every hook.
+Without the quotes, a clone in a directory whose name contains a space
+makes `python3` fail to find the script — and on the `PreToolUse` hook,
+that failure exits 2, which is the block code. Every shell command in the
+session would be refused. The opencode bridge is immune: it resolves the
+script from its own module URL and hands `spawn` an argument list, so no
+shell ever splits the path.
 
 ## What the hooks do
 
@@ -58,22 +79,34 @@ Every one of them is free. They read files, parse TOML, and at most run
 `shakedown case validate`, which spends nothing — a hook that cost money
 is a hook nobody can afford to leave on.
 
-| Moment | Claude Code | Gemini | What it says |
-|---|---|---|---|
-| session opens | `SessionStart` | `SessionStart` | shakedown is not installed, or the config declares a variable you have not exported |
-| a file is written | `PostToolUse` | `AfterTool` | a cases file does not load, a case measures nothing, or a fixture is not executable |
-| before a shell command | `PreToolUse` | `BeforeTool` | **blocks** `case run` when its cases file cannot load; warns otherwise |
+| Moment | Claude Code | Gemini | opencode | What it says |
+|---|---|---|---|---|
+| session opens | `SessionStart` | `SessionStart` | `session.created` event | shakedown is not installed, or the config declares a variable you have not exported |
+| a file is written | `PostToolUse` | `AfterTool` | `tool.execute.after` | a cases file does not load, a case measures nothing, or a fixture is not executable |
+| before a shell command | `PreToolUse` | `BeforeTool` | `tool.execute.before` | **blocks** `case run` when its cases file cannot load; warns otherwise |
 
-A blocking hook speaks on stderr, which both harnesses show to the model.
-The warnings cannot: before a tool call, plain output reaches nobody on
-Claude Code, and after one it reaches only transcript mode. So the two
-tool hooks answer with JSON instead — `systemMessage` for the operator,
-and `additionalContext` so the model knows what it just wrote is broken.
+A blocking hook speaks on stderr, which the manifest harnesses show to
+the model. The warnings cannot: before a tool call, plain output reaches
+nobody on Claude Code, and after one it reaches only transcript mode. So
+the two tool hooks answer with JSON instead — `systemMessage` for the
+operator, and `additionalContext` so the model knows what it just wrote
+is broken.
 
-Gemini names the same moments differently, and its own bundle ships the
-mapping (`PreToolUse: "BeforeTool"`, `PostToolUse: "AfterTool"`). A Claude
-event name in the Gemini manifest parses and then never fires, which is
-why a test pins each manifest to its own vocabulary.
+opencode carries the same verdicts on different channels, and the bridge
+translates. A block becomes a thrown Error, which stops the tool and
+shows the script's stderr to the model. `systemMessage` becomes a TUI
+toast. `additionalContext` has no twin at all, so the bridge appends the
+warning to the tool's own output — the one surface an allowing hook can
+put in front of the model. Session start is the trade-off: on the other
+two harnesses the model reads that message, on opencode only the
+operator's toast carries it. Its warnings — install shakedown, export a
+variable — are things only the operator can do anyway.
+
+Gemini and opencode name the same moments differently — Gemini's bundle
+ships the mapping (`PreToolUse: "BeforeTool"`, `PostToolUse:
+"AfterTool"`), and opencode calls the tools `bash`, `write`, and `edit`.
+A Claude event name in either place parses and then never fires, which is
+why a test pins each plugin to its own vocabulary.
 
 ### Why only one of them blocks
 
@@ -123,9 +156,10 @@ uv run pytest tests/test_plugin_hooks.py -q
 The tests load the script by path rather than importing it, because it
 ships inside the plugin rather than in the package and has to keep working
 for someone who installed the plugin alone. They also assert that every
-hook name a manifest invokes exists in the script, that each manifest uses
-its own harness's event names, and that both point at the file that is
-actually there.
+hook name a plugin invokes exists in the script, that each plugin uses
+its own harness's event names, and that each points at the file that is
+actually there. The opencode bridge is exercised for real: when `node` is
+on the PATH, the tests load it and drive its hooks end to end.
 
 One failure mode worth knowing about, since it is pinned by a test: an
 older `shakedown` exits 2 on `case validate` with click's "No such command
