@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -1731,6 +1732,39 @@ def test_a_dockerfile_path_is_relative_to_the_config() -> None:
     assert resolved == (FAKE / "fake.Dockerfile").resolve()
 
 
+def test_a_build_context_is_relative_to_the_config() -> None:
+    """Anchored like `dockerfile`, or `context = "."` would follow the caller."""
+    loaded = load_config(FAKE / "container-context.toml")
+    resolved = Path(loaded.harness["fake-context"].context)
+    assert resolved.is_absolute()
+    assert resolved == FAKE.resolve()
+
+
+def test_a_build_context_that_is_not_there_fails_at_load(tmp_path: Path) -> None:
+    """A typo'd context builds from the wrong tree, or from nothing at all."""
+    (tmp_path / "some.Dockerfile").write_text("FROM scratch\n")
+    written = tmp_path / "shakedown.toml"
+    written.write_text(
+        '[harness.h]\nstart = ["x"]\nskills = ".s"\n'
+        'dockerfile = "some.Dockerfile"\ncontext = "nope"\n\n'
+        '[[matrix]]\nharness = "h"\nmodels = ["m"]\n'
+    )
+    with pytest.raises(ConfigError, match="no build context at"):
+        load_config(written)
+
+
+def test_a_build_context_without_a_dockerfile_is_refused() -> None:
+    """Nothing is built from a pulled image, so the key would do nothing."""
+    with pytest.raises(ValidationError, match="context"):
+        Harness(start=["x"], skills=".s", image="python:3.12-slim", context=".")
+
+
+def test_a_build_context_defaults_to_the_dockerfiles_own_directory() -> None:
+    """Existing configs keep the context they were written against."""
+    loaded = load_config(FAKE / "container-dockerfile.toml")
+    assert loaded.harness["fake"].context == ""
+
+
 # --- end to end, against a fake harness -----------------------------------
 
 FAKE = REPO / "tests" / "fake"
@@ -2112,20 +2146,179 @@ def _docker_available() -> bool:
 
     if not shutil.which("docker"):
         return False
-    return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+    try:
+        # Deadline because this runs at collection: a wedged daemon should
+        # skip the docker tests, not hang the suite before it starts.
+        return subprocess.run(["docker", "info"], capture_output=True, timeout=30).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 needs_docker = pytest.mark.skipif(not _docker_available(), reason="docker is not available")
 
 
+@pytest.fixture(autouse=True)
+def _forget_built_images() -> Iterator[None]:
+    """Keep the process-wide image cache from outliving one test.
+
+    `_image_for` is cached for the life of the run, so a tag built here
+    would otherwise be handed to a later test whose dockerfile has since
+    left with its `tmp_path`.
+    """
+    from shakedown.sandbox import _image_for
+
+    _image_for.cache_clear()
+    yield
+    _image_for.cache_clear()
+
+
+def _built_from(config: str) -> str:
+    """Build the image the sole harness in ``config`` declares; return its tag."""
+    from shakedown.sandbox import image_for
+
+    return image_for(next(iter(load_config(FAKE / config).harness.values())))
+
+
+def _read_from_image(tag: str, path: str) -> str:
+    """Read one file out of a built image."""
+    done = subprocess.run(
+        ["docker", "run", "--rm", tag, "cat", path], capture_output=True, text=True, check=True
+    )
+    return done.stdout
+
+
 @needs_docker
-@pytest.mark.parametrize("config", ["container.toml", "container-dockerfile.toml"])
+def test_a_widened_context_is_what_the_build_copies_from() -> None:
+    """The fix, end to end: the dockerfile COPYs from above its own directory.
+
+    `docker/context.Dockerfile` copies a file that only exists one level up,
+    so the build fails outright unless `context` reached it.
+    """
+    copied = _read_from_image(
+        _built_from("container-context.toml"), "/shakedown-copied-from-context"
+    )
+    assert "name: fake-skill" in copied
+
+
+@needs_docker
+def test_a_dockerfile_still_builds_without_a_context() -> None:
+    """The default path, which every existing config is on."""
+    tag = _built_from("container-dockerfile.toml")
+    assert tag == "shakedown-fake:latest"
+    assert "built-by-shakedown" in _read_from_image(tag, "/shakedown-built")
+
+
+@needs_docker
+def test_a_failing_build_raises_with_dockers_own_reason(tmp_path: Path) -> None:
+    """Docker names the line that broke; repeating that beats paraphrasing it."""
+    (tmp_path / "broken.Dockerfile").write_text("FROM scratch\nCOPY nothing-here /x\n")
+    written = tmp_path / "shakedown.toml"
+    written.write_text(
+        '[harness.broken]\nstart = ["x"]\nskills = ".s"\n'
+        'dockerfile = "broken.Dockerfile"\n\n'
+        '[[matrix]]\nharness = "broken"\nmodels = ["m"]\n'
+    )
+    from shakedown.sandbox import image_for
+
+    with pytest.raises(RuntimeError, match="failed") as raised:
+        image_for(load_config(written).harness["broken"])
+    assert "nothing-here" in str(raised.value)
+
+
+@needs_docker
+def test_a_tag_that_never_reached_the_local_store_is_reported() -> None:
+    """The guard behind `--load`: a build can succeed and leave no image.
+
+    A `docker-container` builder, which is what `docker/setup-buildx-action`
+    hands CI by default, keeps the result in the build cache. The tag then
+    looks pullable, and the user gets a registry auth error for an image
+    they just built.
+    """
+    from shakedown.sandbox import _docker
+
+    with pytest.raises(RuntimeError, match="reached the local store") as raised:
+        _docker(
+            ["image", "inspect", "shakedown-never-built:latest"],
+            "no image shakedown-never-built:latest reached the local store",
+        )
+    # Docker's own wording, not the sentence this test handed in: without
+    # it the assertion only proves `_docker` echoes its argument back.
+    assert "No such image" in str(raised.value)
+
+
+#: Something to run a deadline against. The container configs already pull
+#: it, so the suite is not paying for a second base image.
+PROBE_IMAGE = "python:3.12-slim"
+
+
+def _ensure_image(tag: str) -> None:
+    """Put ``tag`` on this machine, pulling only if it is not already here.
+
+    A deadline wrapped around `docker run` measures the pull too when the
+    image is cold, and a cold pull outlasts any deadline worth setting.
+    Inspecting first also keeps an offline machine with a warm cache
+    working.
+    """
+    if subprocess.run(
+        ["docker", "image", "inspect", tag], capture_output=True, timeout=30
+    ).returncode:
+        # Output left uncaptured on purpose: `CalledProcessError` carries no
+        # reason of its own, and pytest hides this on a pass and prints it
+        # on a failure, which is exactly when the reason is wanted.
+        subprocess.run(["docker", "pull", tag], check=True, timeout=300)
+
+
+@needs_docker
+def test_a_command_past_its_deadline_reports_what_it_printed() -> None:
+    """Half an hour of waiting should not end in a bare "no answer".
+
+    `TimeoutExpired` carries the output captured before the kill, and that
+    is the only clue to which layer the build stalled on.
+    """
+    from shakedown.sandbox import _docker
+
+    _ensure_image(PROBE_IMAGE)
+    with pytest.raises(RuntimeError, match="no answer after") as raised:
+        _docker(
+            ["run", "--rm", PROBE_IMAGE, "sh", "-c", "echo stalled-here >&2; sleep 30"],
+            "the probe failed",
+            timeout_s=5.0,
+        )
+    assert "stalled-here" in str(raised.value)
+
+
+def test_a_build_without_docker_installed_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Otherwise a bare `FileNotFoundError: docker` reaches the user."""
+    (tmp_path / "some.Dockerfile").write_text("FROM scratch\n")
+    written = tmp_path / "shakedown.toml"
+    written.write_text(
+        '[harness.h]\nstart = ["x"]\nskills = ".s"\n'
+        'dockerfile = "some.Dockerfile"\n\n'
+        '[[matrix]]\nharness = "h"\nmodels = ["m"]\n'
+    )
+    loaded = load_config(written).harness["h"]
+    monkeypatch.setenv("PATH", str(tmp_path / "nothing-here"))
+
+    from shakedown.sandbox import image_for
+
+    with pytest.raises(RuntimeError, match="docker is not installed"):
+        image_for(loaded)
+
+
+@needs_docker
+@pytest.mark.parametrize(
+    "config", ["container.toml", "container-dockerfile.toml", "container-context.toml"]
+)
 def test_container_backend_runs_and_isolates(tmp_path: Path, config: str) -> None:
     """The container backend executes a real conversation and reports isolated.
 
-    Run twice: once against a pulled `image`, once against a built
-    `dockerfile`. Both must reach the same place, since they are two ways of
-    declaring one environment.
+    Run three times: against a pulled `image`, against a built `dockerfile`,
+    and against a `dockerfile` whose `context` is widened past its own
+    directory. All must reach the same place, since they are three ways of
+    declaring one environment. The third build `COPY`s a file the default
+    context cannot see, so it only gets this far if `context` is honoured.
 
     Uses the fake harness, so this costs nothing and needs no credentials.
     A real harness additionally needs its CLI in the image and credentials

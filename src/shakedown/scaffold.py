@@ -53,6 +53,7 @@ activation_tool = "Skill"
 # For `--sandbox container`, declare exactly one of:
 #   image      = "ghcr.io/you/claude-code:2.1.220"
 #   dockerfile = "docker/claude-code.Dockerfile"
+# Add `context = "."` beside `dockerfile` to COPY from the repo root.
 
 [harness.claude-code.env]
 # `tmp` only: your own home, which is what makes that sandbox fast and
@@ -95,6 +96,7 @@ activation_tool = "activate_skill"
 # For `--sandbox container`, declare exactly one of:
 #   image      = "ghcr.io/you/gemini-cli:0.47.0"
 #   dockerfile = "docker/gemini-cli.Dockerfile"
+# Add `context = "."` beside `dockerfile` to COPY from the repo root.
 
 [harness.gemini-cli.env]
 # `tmp` only: your own home, which is what makes that sandbox fast and
@@ -140,6 +142,7 @@ activation_tool = "skill"
 # For `--sandbox container`, declare exactly one of:
 #   image      = "ghcr.io/you/opencode:1.18.15"
 #   dockerfile = "docker/opencode.Dockerfile"
+# Add `context = "."` beside `dockerfile` to COPY from the repo root.
 
 [harness.opencode.env]
 # `tmp` only: your own home, which is what makes that sandbox fast and

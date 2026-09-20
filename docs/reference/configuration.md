@@ -29,12 +29,19 @@ appears in target labels.
 | `activation_tool` | string | `"Skill"` | Substring identifying a skill-activation call in this harness's output |
 | `image` | string | `""` | Prebuilt image for `--sandbox container` |
 | `dockerfile` | string | `""` | Dockerfile to build for `--sandbox container`, relative to `shakedown.toml` |
+| `context` | string | the dockerfile's directory | Directory the build can `COPY` from, relative to `shakedown.toml` |
 | `env` | table of strings | `{}` | The only variables the sandbox gets |
 | `events` | table | defaults below | Where a tool call sits in this harness's output |
 
 Declaring both `image` and `dockerfile` is an error: one is pulled, the
 other is built. A `dockerfile` that does not exist fails at config load,
 naming the resolved path.
+
+`context` widens what the build can copy. It defaults to the dockerfile's
+own directory, so `COPY` reaches nothing above it — set `context = "."` to
+build from the repo root when the image needs something the repo builds,
+such as your own CLI. A `context` without a `dockerfile` is refused, and one
+that is not a directory fails at config load.
 
 ### Command templates
 

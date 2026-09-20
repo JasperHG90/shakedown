@@ -9,7 +9,7 @@ shakedown is not on PyPI. It installs from GitHub.
 - At least one agent harness on your PATH — `claude`, `gemini`, or
   whichever one you plan to measure. shakedown runs harnesses; it does not
   install them.
-- Docker, only if you plan to use `--sandbox container`.
+- Docker 23 or newer, only if you plan to use `--sandbox container`.
 
 ## Install the command
 

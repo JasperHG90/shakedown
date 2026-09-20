@@ -1,0 +1,20 @@
+# Its own harness name, not `fake`: the image tag is derived from it, and
+# sharing one tag with the other container configs lets a parallel run
+# rebuild this image out from under the test reading it.
+[harness.fake-context]
+start  = ["/work/bin/agent", "-p", "{prompt}", "--session-id", "{sid}"]
+resume = ["/work/bin/agent", "-p", "{reply}", "--resume", "{sid}"]
+skills = ".fake/skills"
+activation_tool = "Skill"
+dockerfile = "docker/context.Dockerfile"
+context = "."
+
+[harness.fake-context.env]
+FAKE_COUNTER = "${FAKE_COUNTER}"
+
+[harness.fake-context.events]
+container = "message.content"
+
+[[matrix]]
+harness = "fake-context"
+models  = ["m1"]

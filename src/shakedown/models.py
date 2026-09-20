@@ -59,6 +59,7 @@ class Harness(BaseModel):
     activation_tool: str = "Skill"
     image: str = ""
     dockerfile: str = ""
+    context: str = ""
     events: Events = Field(default_factory=Events)
     env: dict[str, str] = Field(default_factory=dict)
 
@@ -69,6 +70,11 @@ class Harness(BaseModel):
             raise ValueError(
                 "declare either `image` or `dockerfile`, not both: "
                 "an image is pulled, a dockerfile is built"
+            )
+        if self.context and not self.dockerfile:
+            raise ValueError(
+                "`context` is where a `dockerfile` build copies from, so it "
+                "needs one: an image is pulled, not built"
             )
         return self
 
@@ -329,6 +335,13 @@ def load_config(path: Path | None = None) -> Config:
             if not resolved.is_file():
                 raise ConfigError(f"{path}: harness {harness.name}: no dockerfile at {resolved}")
             harness.dockerfile = str(resolved)
+        if harness.context:
+            directory = (path.parent / harness.context).resolve()
+            if not directory.is_dir():
+                raise ConfigError(
+                    f"{path}: harness {harness.name}: no build context at {directory}"
+                )
+            harness.context = str(directory)
     return loaded
 
 

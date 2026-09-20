@@ -5,7 +5,8 @@ can see whatever else you have installed. Run in a container to remove that.
 
 ## Prerequisites
 
-- Docker running.
+- Docker 23 or newer, running. A `dockerfile` is built through the CLI, and
+  the flag that keeps the result on your machine arrived with buildx.
 - An API key for the harness. Browser-login credentials live in your host
   keychain and are not visible inside a container.
 
@@ -42,7 +43,36 @@ RUN npm i -g @anthropic-ai/claude-code@${CLAUDE_VERSION}
 Pinning the version is the point: it makes the harness version a property of
 the image rather than a flag someone has to remember.
 
-### 2. Pass credentials as environment
+### 2. Widen the build context to reach your own code
+
+A build can only copy from its context, which is the dockerfile's own
+directory unless you say otherwise. That is enough for an image built out of
+package registries, and not enough when the thing your skill shells out to is
+the CLI this repo builds — `COPY ../../packages/mycli` is outside the context
+and Docker refuses it. Point `context` at the repo root instead:
+
+```toml
+[harness.claude-code]
+dockerfile = "examples/docker/claude-code.Dockerfile"
+context = "."
+```
+
+```dockerfile
+COPY packages/mycli /src/mycli
+RUN pip install /src/mycli
+```
+
+Paths in the dockerfile are now relative to the repo root, not to the
+dockerfile. `context` is resolved against `shakedown.toml` like `dockerfile`
+is, so `"."` means the config's directory wherever you run from.
+
+Everything under the context is sent to the daemon, so a repo root with a
+large `.venv` or `node_modules` makes the build crawl. A `.dockerignore` at
+the context root keeps it out.
+
+Skip this step when the image needs nothing from the repo.
+
+### 3. Pass credentials as environment
 
 The container inherits nothing, so the credential has to be declared:
 
@@ -71,7 +101,7 @@ On macOS that login lives in the Keychain rather than in a file under
 `$HOME`, so no amount of mounting carries it in. Keep the value a `${VAR}`
 reference: a token written into the TOML gets committed.
 
-### 3. Run
+### 4. Run
 
 ```bash
 shakedown doctor --sandbox container --harness claude-code
@@ -106,6 +136,27 @@ is.
 **The skill's `bin/` fails to run.** Its interpreter is missing from the
 image. `examples/docker/` has one Dockerfile per shipped harness to copy
 from.
+
+**`failed to compute cache key ... "/some/file": not found`.** A `COPY` reaches
+outside the build context. BuildKit cannot see past the context, so it
+reports the file as missing rather than as forbidden. Set `context`
+(step 2), and write the `COPY` paths relative to that directory.
+
+**`no image ... reached the local store`.** The build succeeded but left
+nothing you can run. shakedown passes `--load` to stop that, so start with
+`docker buildx ls` and `BUILDX_BUILDER`: the selected builder is what
+decides where a result goes.
+
+**`no answer after ...s`.** The command passed its ceiling and was killed —
+half an hour for a build, thirty seconds for a metadata read. Nothing here
+waits forever, because the bug this replaced was a build that hung instead
+of failing. Whatever the command printed first comes with the error.
+
+**A run reports `mycli: not found` under `container` but passes under
+`tmp`.** The binary is on your host's `PATH`, which `tmp` borrows and a
+container does not have. Install it in the image — with `context` if the
+repo is what builds it. The two sandboxes disagreeing like this is a
+statement about the image, not a finding about the skill.
 
 **It is slower than `tmp`.** The image builds once per run. That is the
 trade: `tmp` is fast and honest about not being isolated, `container` is

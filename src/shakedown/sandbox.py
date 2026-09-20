@@ -35,19 +35,90 @@ NOT_THE_SKILL = (CASES_NAME, "README.md")
 #: Variables that describe the host. A container has its own.
 HOST_ONLY = frozenset({"PATH", "HOME"})
 
+#: Ceiling on one image build. Generous, because a cold image can install a
+#: whole toolchain, but finite: a build with no deadline is the failure
+#: this code exists to avoid.
+BUILD_TIMEOUT_S = 1800.0
+
+#: Ceiling on a metadata read. A wedged daemon answers nothing, and there
+#: is no reason to wait a build's worth of time to learn that.
+QUERY_TIMEOUT_S = 30.0
+
 
 def _text(chunk: bytes | None) -> str:
     """Decode one half of a demuxed exec stream."""
     return chunk.decode() if chunk else ""
 
 
+def _docker(argv: list[str], failure: str, timeout_s: float = BUILD_TIMEOUT_S) -> None:
+    """Run a docker command, discarding its output unless it fails.
+
+    Parameters
+    ----------
+    argv :
+        Arguments after ``docker``.
+    failure :
+        What to say went wrong. The reason is appended to it, so this reads
+        as the first half of a sentence.
+    timeout_s :
+        How long to wait, ``BUILD_TIMEOUT_S`` unless the caller says
+        otherwise. Nothing here runs without a deadline: the bug this code
+        replaced was a build that hung rather than failed, and a stalled
+        registry pull would reproduce the same blank wait. A command that
+        only asks the daemon a question deserves a far shorter one.
+
+    Raises
+    ------
+    RuntimeError
+        If docker is missing, the command fails, or it passes the deadline.
+        Whatever the command printed first comes with it: a build that dies
+        on layer nine is only diagnosable from its own output, and so is
+        one that stalls there.
+    """
+    try:
+        done = subprocess.run(
+            ["docker", *argv],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            check=False,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(f"{failure}: docker is not installed") from None
+    except subprocess.TimeoutExpired as expired:
+        # Whatever was captured before the kill, which arrives as raw bytes
+        # even though the call asked for text, and sometimes not at all.
+        written = expired.stderr or expired.stdout or b""
+        partial = written.decode(errors="replace") if isinstance(written, bytes) else written
+        raise RuntimeError(f"{failure}: no answer after {timeout_s:.0f}s\n{partial}") from None
+    if done.returncode != 0:
+        raise RuntimeError(f"{failure}\n{done.stderr or done.stdout}")
+
+
 @cache
-def _image_for(name: str, image: str, dockerfile: str, stamp: float) -> str:
+def _image_for(name: str, image: str, dockerfile: str, context: str, stamp: float) -> str:
     """The image to run this harness in, built at most once per process.
 
     A sandbox is created per scenario, so building or installing here would
     repeat on every case, every repeat, every target. Cached on the
-    dockerfile's mtime, so editing it rebuilds and nothing else does.
+    dockerfile's mtime, so editing it rebuilds and nothing else does. What
+    the build copies in is not part of that key: BuildKit hashes the context
+    itself, so a rebuilt CLI is picked up on the next run rather than by
+    this cache.
+
+    ``context`` is the directory the build can copy from, defaulting to the
+    dockerfile's own. A repo that ships both a CLI and the skills driving
+    it has to widen that to reach the CLI's source, since a container
+    inherits nothing and `COPY` refuses a path outside the context.
+
+    Raises
+    ------
+    RuntimeError
+        If the harness declares no environment, or the build fails, times
+        out, or leaves no local image. The build's own output comes with
+        it: a `COPY` that reaches outside the context reads as one line and
+        is the likeliest failure here.
     """
     del stamp
     if image:
@@ -58,22 +129,36 @@ def _image_for(name: str, image: str, dockerfile: str, stamp: float) -> str:
             "so there is nothing to run a container from"
         )
 
-    from testcontainers.core.image import DockerImage
-
-    path = Path(dockerfile)
-    built = DockerImage(
-        path=path.parent,
-        dockerfile_path=path.name,
-        tag=f"shakedown-{name}:latest",
-        clean_up=False,
-    ).build()
-    return str(built)
+    path = Path(dockerfile).resolve()
+    directory = context or str(path.parent)
+    tag = f"shakedown-{name}:latest"
+    # The CLI rather than the daemon's build endpoint through a library:
+    # that endpoint is the classic builder, which Docker 29 no longer
+    # serves, and a build against it hangs instead of failing. The CLI gets
+    # BuildKit. `--load` exports the result into the local image store,
+    # which a container driver — what `docker/setup-buildx-action` hands CI
+    # by default — otherwise leaves in the build cache. `--progress plain`
+    # because this output is only ever read after a failure, where cursor
+    # control codes are noise.
+    _docker(
+        ["build", "--progress", "plain", "--load", "-f", str(path), "-t", tag, "--", directory],
+        f"harness {name}: building {path} failed",
+    )
+    # A tag the daemon cannot find is pulled rather than reported, so
+    # skipping this check costs the user a registry auth error for an image
+    # they just built.
+    _docker(
+        ["image", "inspect", tag],
+        f"harness {name}: {path} built, but no image {tag} reached the local store",
+        timeout_s=QUERY_TIMEOUT_S,
+    )
+    return tag
 
 
 def image_for(harness: Harness) -> str:
     """Resolve this harness to a runnable image."""
     stamp = Path(harness.dockerfile).stat().st_mtime if harness.dockerfile else 0.0
-    return _image_for(harness.name, harness.image, harness.dockerfile, stamp)
+    return _image_for(harness.name, harness.image, harness.dockerfile, harness.context, stamp)
 
 
 class Sandbox(ABC):

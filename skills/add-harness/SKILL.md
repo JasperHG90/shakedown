@@ -93,6 +93,7 @@ activation_tool = "Skill"
 # Exactly one of these, and only for `--sandbox container`:
 image      = "ghcr.io/you/my-agent:1.2.3"
 # dockerfile = "docker/my-agent.Dockerfile"
+# context    = "."   # with `dockerfile`, to COPY from the repo root
 
 [harness.my-harness.env]
 MY_AGENT_TOKEN = "${MY_AGENT_TOKEN}"
@@ -133,6 +134,12 @@ shipped harness.
 
 The path is relative to `shakedown.toml`, and it is built once per run
 rather than per scenario.
+
+**`context`** is the directory a `dockerfile` build can `COPY` from,
+defaulting to the dockerfile's own. Widen it with `context = "."` when the
+image needs something this repo builds rather than something it installs
+from a registry — your own CLI, say. Without it the `COPY` is outside the
+context and Docker refuses it.
 
 ## Step 3: Tell shakedown where the tool calls are
 
